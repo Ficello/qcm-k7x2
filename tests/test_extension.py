@@ -329,3 +329,20 @@ def test_dist_packages_and_userscript_build_cleanly():
     finally:
         if tmp_html.exists():
             tmp_html.unlink()
+
+    # Verify docs/index.html renders non-empty tutorial panel in headless Chrome
+    docs_url = (EXT_ROOT / "docs" / "index.html").resolve().as_uri()
+    docs_res = subprocess.run(
+        [chrome_bin, "--headless=new", "--disable-gpu", "--dump-dom", docs_url],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert docs_res.returncode == 0, f"Chrome headless failed on docs/index.html: {docs_res.stderr}"
+    docs_dom = docs_res.stdout
+    assert 'id="panel"></section>' not in docs_dom, "Tutorial panel rendered empty in docs/index.html"
+    assert "<h2>" in docs_dom and "<ol><li>" in docs_dom and 'class="btn"' in docs_dom, (
+        f"Tutorial panel missing expected elements in docs/index.html:\n{docs_dom}"
+    )

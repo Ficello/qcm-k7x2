@@ -126,7 +126,7 @@ def _build_userscript(dest_path: Path, version: str):
     dest_path.write_text("".join(chunks), encoding="utf-8")
 
 
-SITE_HTML = """<!doctype html>
+SITE_HTML = r"""<!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
