@@ -279,19 +279,21 @@ def test_dist_packages_and_userscript_build_cleanly():
     emoji_re = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]")
     assert not emoji_re.search(guide_text), "Emoji found in friend installation guide"
 
-    # Verify unlisted install site artifacts
-    site_dir = EXT_ROOT / "site"
-    assert (site_dir / "index.html").is_file()
-    assert (site_dir / "robots.txt").is_file()
-    assert "Disallow: /" in (site_dir / "robots.txt").read_text(encoding="utf-8")
-    for fname in (
-        "qcm-clavier.user.js",
-        "QCM-Clavier-Chromium.zip",
-        "QCM-Clavier-Firefox.xpi",
-        "QCM-Clavier-Safari-Source.zip",
-    ):
-        assert (site_dir / "files" / fname).is_file(), f"Missing site file: {fname}"
-    site_html = (site_dir / "index.html").read_text(encoding="utf-8")
+    # Verify unlisted install site & GitHub Pages docs artifacts
+    for target_name in ("site", "docs"):
+        target_dir = EXT_ROOT / target_name
+        assert (target_dir / "index.html").is_file()
+        assert (target_dir / "robots.txt").is_file()
+        assert "Disallow: /" in (target_dir / "robots.txt").read_text(encoding="utf-8")
+        for fname in (
+            "qcm-clavier.user.js",
+            "QCM-Clavier-Chromium.zip",
+            "QCM-Clavier-Firefox.xpi",
+            "QCM-Clavier-Safari-Source.zip",
+        ):
+            assert (target_dir / "files" / fname).is_file(), f"Missing {target_name} file: {fname}"
+    assert (EXT_ROOT / "docs" / ".nojekyll").is_file()
+    site_html = (EXT_ROOT / "site" / "index.html").read_text(encoding="utf-8")
     assert "noindex, nofollow" in site_html
     assert "linear-gradient" not in site_html.lower()
     assert "backdrop-filter" not in site_html.lower()

@@ -8,6 +8,7 @@ from pathlib import Path
 EXT_ROOT = Path(__file__).resolve().parent.parent
 DIST_DIR = EXT_ROOT / "dist"
 SITE_DIR = EXT_ROOT / "site"
+DOCS_DIR = EXT_ROOT / "docs"
 
 CORE_INCLUDE_DIRS = ("icons", "src/core", "src/adapters", "src/content", "ui")
 CORE_INCLUDE_FILES = ("README.md",)
@@ -341,25 +342,31 @@ SITE_HTML = """<!doctype html>
 
 
 def _build_site(artifacts: list[Path]) -> list[Path]:
-    files_dir = SITE_DIR / "files"
-    files_dir.mkdir(parents=True, exist_ok=True)
+    outputs = []
+    for target_dir, add_nojekyll in ((SITE_DIR, False), (DOCS_DIR, True)):
+        files_dir = target_dir / "files"
+        files_dir.mkdir(parents=True, exist_ok=True)
 
-    site_outputs = []
-    for src in artifacts:
-        if src.suffix in (".zip", ".xpi", ".js"):
-            dest = files_dir / src.name
-            shutil.copy2(src, dest)
-            site_outputs.append(dest)
+        for src in artifacts:
+            if src.suffix in (".zip", ".xpi", ".js"):
+                dest = files_dir / src.name
+                shutil.copy2(src, dest)
+                outputs.append(dest)
 
-    robots = SITE_DIR / "robots.txt"
-    robots.write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
-    site_outputs.append(robots)
+        robots = target_dir / "robots.txt"
+        robots.write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
+        outputs.append(robots)
 
-    index_html = SITE_DIR / "index.html"
-    index_html.write_text(SITE_HTML, encoding="utf-8")
-    site_outputs.append(index_html)
+        index_html = target_dir / "index.html"
+        index_html.write_text(SITE_HTML, encoding="utf-8")
+        outputs.append(index_html)
 
-    return site_outputs
+        if add_nojekyll:
+            nojekyll = target_dir / ".nojekyll"
+            nojekyll.write_text("", encoding="utf-8")
+            outputs.append(nojekyll)
+
+    return outputs
 
 
 def build_all() -> list[Path]:
