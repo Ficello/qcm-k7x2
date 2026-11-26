@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>RUNNING</title>
+</head>
+<body>
+  <input id="text-input" type="text" value="">
+  <input id="checkbox-input" type="checkbox">
+  <textarea id="textarea-input"></textarea>
+  <pre id="results"></pre>
+
+  <script src="../src/core/schema.js"></script>
+  <script src="../src/core/storage.js"></script>
+  <script src="../src/core/keybind.js"></script>
+  <script src="../src/core/dom.js"></script>
+  <script>
+    (function () {
+      const results = [];
+      let passed = 0;
+      let failed = 0;
+
+      function assert(cond, msg) {
+        if (!cond) throw new Error(msg || 'Assertion failed');
+      }
+
+      function assertEq(a, b, msg) {
+        if (a !== b) throw new Error((msg || 'Not equal') + ': expected ' + JSON.stringify(b) + ', got ' + JSON.stringify(a));
+      }
+
+      function test(name, fn) {
+        try {
+          fn();
+          passed++;
+          results.push('PASS: ' + name);
+        } catch (err) {
+          failed++;
+          results.push('FAIL: ' + name + ' -> ' + err.message);
+        }
+      }
+
+      const { schema, storage, keybind, dom } = globalThis.QCMK;
+
+      test('schema has 4 visible sites and 1 hidden refoua site', () => {
+        const visible = schema.sites.filter((s) => !s.hidden).map((s) => s.id);
+        assertEq(visible.join(','), 'edn,hypocampus,uness,asclepia');
+        const hidden = schema.sites.filter((s) => s.hidden).map((s) => s.id);
+        assertEq(hidden.join(','), 'refoua');
+      });
+
+      test('schema defines 10 shared choice actions', () => {
+        assertEq(schema.sharedActions.length, 10);
+        assertEq(schema.sharedActions[0].id, 'choice.1');
+        assertEq(schema.sharedActions[9].id, 'choice.10');
+      });
+
+      test('schema features include expected ids and defaults', () => {
+        assert(schema.byId['edn.training.answer'], 'missing edn.training.answer');
+        assert(schema.byId['edn.exam.flags'], 'missing edn.exam.flags');
+        assert(schema.byId['hypo.exposeDropdown'], 'missing hypo.exposeDropdown');
+        assert(schema.byId['uness.flags'], 'missing uness.flags');
+        assert(schema.byId['asclepia.chain'], 'missing asclepia.chain');
+        assertEq(schema.byId['edn.keyHints'].enabledByDefault, false);
+      });
+
+      test('presets azerty, qwerty, mac_azerty build valid settings', () => {
+        const az = storage.buildDefaults('azerty');
+        assertEq(az.shared['choice.1'].length, 2);
+        assertEq(az.shared['choice.2'][1].key, 'é');
+
+        const qw = storage.buildDefaults('qwerty');
+        assertEq(qw.shared['choice.1'].length, 1);
+        assertEq(qw.features['edn.exam.flags'].actions.toggle[0].key, 'f');
+        assertEq(qw.features['edn.timer'].actions.toggle[0].key, 't');
+
+        const mac = storage.buildDefaults('mac_azerty');
+        assertEq(mac.features['edn.timer'].actions.toggle[0].key, '@');
+      });
+
+      test('keybind matches AZERTY symbols, digits, arrows, Enter, and modifiers', () => {
+        const evt = (key, mods) => Object.assign({ key, ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, mods || {});
+        assert(keybind.matchesBinding(evt('&'), { key: '&' }));
+        assert(keybind.matchesBinding(evt('é'), { key: 'é' }));
+        assert(keybind.matchesBinding(evt('ù'), { key: 'ù' }));
+        assert(keybind.matchesBinding(evt('!'), { key: '!' }));
+        assert(keybind.matchesBinding(evt('*'), { key: '*' }));
+        assert(keybind.matchesBinding(evt('$'), { key: '$' }));
+        assert(keybind.matchesBinding(evt('²'), { key: '²' }));
+        assert(keybind.matchesBinding(evt('Enter'), { key: 'Enter' }));
+        assert(keybind.matchesBinding(evt('ArrowLeft'), { key: 'ArrowLeft' }));
+        assert(keybind.matchesBinding(evt('ù', { ctrlKey: true }), { key: 'ù', ctrl: true }));
+        assert(!keybind.matchesBinding(evt('ù'), { key: 'ù', ctrl: true }));
+        assert(!keybind.matchesBinding(evt('ù', { ctrlKey: true }), { key: 'ù' }));
+        assert(keybind.matchesBinding(evt('F'), { key: 'f' }));
+      });
+
+      test('keybind formatting and typing target detection', () => {
+        assertEq(keybind.formatBinding({ key: 'ù', ctrl: true }), 'Ctrl + ù');
+        assertEq(keybind.formatBinding({ key: 'Enter' }), 'Entrée');
+        assertEq(keybind.formatBinding({ key: 'ArrowRight' }), '→');
+
+        const textInput = document.getElementById('text-input');
+        const cbInput = document.getElementById('checkbox-input');
+        const taInput = document.getElementById('textarea-input');
+        assert(keybind.isTypingTarget(textInput), 'text input should be typing target');
+        assert(keybind.isTypingTarget(taInput), 'textarea should be typing target');
+        assert(!keybind.isTypingTarget(cbInput), 'checkbox should not be typing target');
+      });
+
+      test('storage mergeSettings and export/import round-trip', () => {
+        const s = storage.buildDefaults('azerty');
+        s.features['edn.scroll'].options.step = 450;
+        s.features['edn.keyHints'].enabled = true;
+        const json = storage.exportJson(s);
+        const imported = storage.importJson(json);
+        assertEq(imported.features['edn.scroll'].options.step, 450);
+        assertEq(imported.features['edn.keyHints'].enabled, true);
+
+        const clamped = storage.mergeSettings({
+          features: { 'edn.scroll': { options: { step: 5000 } } },
+        });
+        assertEq(clamped.features['edn.scroll'].options.step, 1000);
+      });
+
+      test('dom normText and FlagStore work cleanly', () => {
+        assertEq(dom.normText('  Vérifier  la Réponse '), 'verifier la reponse');
+        const store = new dom.FlagStore('test');
+        store.clearFlags('exam1');
+        let res = store.toggleFlag('exam1', 'q3');
+        assert(res.added && res.flags.has('q3'));
+        res = store.toggleFlag('exam1', 'q3');
+        assert(!res.added && !res.flags.has('q3'));
+      });
+
+      document.getElementById('results').textContent =
+        results.join('\n') + '\n\nSUMMARY: ' + passed + ' passed, ' + failed + ' failed';
+      document.title = failed === 0 ? 'PASS' : 'FAIL';
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QCM Clavier - Configuration des raccourcis</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../icons/icon32.png">
+  <link rel="stylesheet" href="base.css">
+  <style>
+    .page-shell {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+    }
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand h1 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .brand p {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .toolbar-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding-right: 8px;
+      border-right: 1px solid var(--border);
+    }
+    .select-input {
+      padding: 6px 10px;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+    }
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab-btn {
+      padding: 9px 14px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .tab-btn:hover {
+      color: var(--text);
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 600;
+    }
+    .status-banner {
+      margin-top: 14px;
+      padding: 9px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 13px;
+      color: var(--text);
+      display: none;
+    }
+    .status-banner.visible {
+      display: block;
+    }
+    .status-banner.error {
+      border-color: var(--danger-border);
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+    .section-block {
+      margin-top: 22px;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .feature-table {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .feature-row {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .feature-row:last-child {
+      border-bottom: 0;
+    }
+    .feature-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .feature-name {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .feature-desc {
+      margin-top: 2px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .actions-list {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 7px 10px;
+      border-radius: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+    .action-label {
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .bindings-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+    .conflict-note {
+      width: 100%;
+      font-size: 12px;
+      color: var(--danger);
+    }
+    .options-list {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .option-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .option-number {
+      width: 78px;
+      padding: 4px 8px;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="../icons/icon48.png" alt="" width="36" height="36">
+        <div>
+          <h1>QCM Clavier</h1>
+          <p>Configuration personnelle des raccourcis sur EDN.fr, Hypocampus, UNESS et Asclepia</p>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="toolbar-group">
+          <label for="global-enabled">Extension active</label>
+          <label class="switch">
+            <input type="checkbox" id="global-enabled">
+            <span class="switch-track"></span>
+          </label>
+        </div>
+
+        <select id="preset-select" class="select-input" aria-label="Disposition clavier">
+          <option value="azerty">Préréglage : AZERTY (PC)</option>
+          <option value="mac_azerty">Préréglage : AZERTY (Mac)</option>
+          <option value="qwerty">Préréglage : QWERTY</option>
+        </select>
+
+        <button id="apply-preset" class="btn" type="button">Appliquer le préréglage</button>
+        <button id="export-btn" class="btn" type="button">Exporter JSON</button>
+        <button id="import-btn" class="btn" type="button">Importer JSON</button>
+        <input id="import-file" type="file" accept="application/json,.json" hidden>
+        <button id="reset-btn" class="btn" type="button">Réinitialiser</button>
+      </div>
+    </header>
+
+    <nav id="tabs" class="tabs" role="tablist"></nav>
+    <div id="status-banner" class="status-banner" role="status"></div>
+    <main id="content"></main>
+  </div>
+
+  <script src="../src/core/schema.js"></script>
+  <script src="../src/core/storage.js"></script>
+  <script src="../src/core/keybind.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
