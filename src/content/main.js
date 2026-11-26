@@ -108,4 +108,53 @@
       adapter.init(ctx);
     }
   });
+
+  function fallbackContextMenuAnki(msg) {
+    const anki = root.anki;
+    if (!anki) return { ok: false, uri: '' };
+    const rawText = (msg && msg.selectionText) || (document.body ? document.body.innerText || document.body.textContent || '' : '');
+    const oics = rawText.match(/\bOIC[-_]\d{1,3}[-_]\d{1,2}[-_][AB](?:[-_]\d{1,2})?\b/gi) || [];
+    const sdds = rawText.match(/\bSDD[-_]\d{1,3}\b/gi) || [];
+    const items = [];
+    const itemRe = /(?:Item|IC|N°)\s*[-:]?\s*(\d{1,3})\b/gi;
+    let m;
+    while ((m = itemRe.exec(rawText)) !== null && items.length < 3) {
+      if (items.indexOf(m[1]) === -1) items.push(m[1]);
+    }
+    const keywords = anki.extractMedicalKeywords(rawText, 5);
+    const uri = anki.buildAnkiEdnUri({
+      action: 'qcm',
+      src: siteId,
+      oic: oics,
+      sdd: sdds,
+      item: items,
+      q: keywords,
+    });
+    if (uri) {
+      anki.launchAnkiUri(uri, 'Ouverture dans Anki EDN...');
+      return { ok: true, uri };
+    }
+    root.dom.showToast('Aucune notion détectée pour Anki EDN.');
+    return { ok: false, uri: '' };
+  }
+
+  const isFirefox = typeof browser !== 'undefined' && Boolean(browser && browser.runtime);
+  const extApi = isFirefox ? browser : (typeof chrome !== 'undefined' ? chrome : null);
+  if (extApi && extApi.runtime && extApi.runtime.onMessage) {
+    extApi.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (!msg || msg.type !== 'qcmk-open-anki') return;
+      const rawRes = typeof adapter.onContextMenuAnki === 'function'
+        ? adapter.onContextMenuAnki(msg, ctx)
+        : fallbackContextMenuAnki(msg);
+      const result = rawRes && typeof rawRes === 'object'
+        ? rawRes
+        : { ok: Boolean(rawRes), uri: '' };
+      if (isFirefox) {
+        return Promise.resolve(result);
+      }
+      if (typeof sendResponse === 'function') {
+        sendResponse(result);
+      }
+    });
+  }
 })();

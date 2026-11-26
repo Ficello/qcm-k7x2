@@ -4,11 +4,11 @@ Extension Chrome personnelle (Manifest V3) offrant des raccourcis clavier entiè
 
 ## Plateformes prises en charge
 
-- **EDN.fr** : sélection des propositions (1 à 10), validation, auto-évaluation en correction, navigation précédente/suivante, gestion des ancrages, minuteur au clavier, autofocus QROC, affichage compact en demi-écran, drapeaux par épreuve, coloration des scores, compteurs d'ancrages par matière, repères clavier sur la page et liens directs vers les objectifs LiSA sur Refoua.
-- **Hypocampus** : sélection des propositions (1 à 10), validation/continuation, navigation précédente/suivante, défilement au clavier, autofocus QROC et déploiement des menus déroulants en boutons cliquables.
-- **UNESS** : sélection des propositions de la question la plus haute, validation ou passage à la question suivante, drapeau natif Moodle au clavier et défilement.
-- **Asclepia** : sélection des propositions, validation/confirmation/correction, enchaînement automatique des sous-dossiers, autofocus QROC, masquage de la barre supérieure, drapeaux mémorisés en composition et en correction, défilement.
-- **Refoua** : défilement automatique et mise en surbrillance de l'objectif LiSA transmis depuis EDN.fr.
+- **EDN.fr** : sélection des propositions (1 à 10), validation, auto-évaluation en correction, navigation précédente/suivante, tri et filtrage par objectif/rang/progression sur Notions, filtres cliquables et lancement rapide sur Ancrage/Items, minuteur au clavier, autofocus QROC, affichage compact en demi-écran, drapeaux par épreuve (avec saut au suivant), épinglage au clavier (`Alt+P`), coloration des scores, repères clavier sur la page, liens vers Refoua et connecteur **Anki EDN** (`Alt+A` / `Alt+E`) sur fiches de cours, notions et corrections.
+- **Hypocampus** : sélection des propositions (1 à 10), validation/continuation, navigation précédente/suivante, défilement au clavier, autofocus QROC, déploiement des menus déroulants en boutons cliquables, drapeaux par session, scores colorés, repères clavier, ouverture du lien de cours (`Alt+C`) et connecteur direct **Anki EDN** (touche `A` / `Alt+E`, bouton sur la page, bouton dans le popup de l'extension et clic droit) sur cours et corrections.
+- **UNESS** (`*.uness.fr`) : sélection des propositions de la question la plus haute, validation ou passage à la question suivante, navigation précédente/suivante, autofocus QROC, drapeau natif et favori (`*`) Moodle au clavier, repères clavier, défilement, et connecteur direct **Anki EDN** (touche `A` pour la question ou fiche active, touche `E` pour les erreurs uniquement, bouton dans le popup de l'extension et clic droit) sur `entrainement-edn.uness.fr` et `livret.uness.fr/lisa/`.
+- **Asclepia** : sélection des propositions, validation/confirmation/correction, navigation précédente/suivante, enchaînement automatique des sous-dossiers, autofocus QROC, masquage de la barre supérieure, drapeaux mémorisés en composition et en correction (avec saut au suivant), scores colorés, repères clavier, défilement et connecteur **Anki EDN** (`Alt+A` / `Alt+E`) sur fiches item et corrections.
+- **Refoua** : défilement automatique, mise en surbrillance de l'objectif LiSA transmis depuis EDN.fr et bouton direct **Anki EDN**.
 
 ## Partager avec des amis (tous navigateurs)
 

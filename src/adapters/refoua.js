@@ -7,6 +7,25 @@
     const dom = root.dom;
     let appliedHash = '';
 
+    function injectAnkiButtonNear(targetEl, rawObjective) {
+      const anki = root.anki;
+      if (!anki || !targetEl || targetEl.querySelector('.qcmk-refoua-anki')) return;
+      const oicMatch = String(rawObjective || targetEl.textContent || '').match(/\bOIC[-_]\d{1,3}[-_]\d{1,2}[-_][AB](?:[-_]\d{1,2})?\b/i);
+      const itemMatch = (location.pathname || '').match(/item[-_]?(\d{1,3})/i) || (document.title || '').match(/\bItem\s*(\d{1,3})\b/i);
+      const uri = anki.buildAnkiEdnUri({
+        action: 'lisa',
+        src: 'lisa',
+        oic: oicMatch ? oicMatch[0] : undefined,
+        item: itemMatch ? itemMatch[1] : undefined,
+        q: anki.extractMedicalKeywords(rawObjective || targetEl.textContent || '', 4),
+      });
+      if (!uri) return;
+      const btn = anki.createAnkiButton({ label: 'Anki', compact: true, uri });
+      btn.classList.add('qcmk-refoua-anki');
+      btn.style.marginLeft = '8px';
+      targetEl.appendChild(btn);
+    }
+
     function scrollToObjective(ctx) {
       if (!ctx.isEnabled('refoua.autoScroll')) return;
       const hash = location.hash || '';
@@ -25,6 +44,7 @@
 
       appliedHash = hash;
       match.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      injectAnkiButtonNear(match, raw);
       const prevBg = match.style.backgroundColor;
       const prevOutline = match.style.outline;
       match.style.backgroundColor = '#fef9c3';
@@ -45,7 +65,9 @@
       onKeyDown() {
         return false;
       },
-      destroy() {},
+      destroy() {
+        document.querySelectorAll('.qcmk-refoua-anki').forEach((n) => n.remove());
+      },
     };
   }
 

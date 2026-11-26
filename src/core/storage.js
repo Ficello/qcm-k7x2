@@ -103,6 +103,29 @@
             }
           }
         }
+        // Migrate legacy Alt+A / Alt+Shift+A / Alt+E / Alt+Shift+E defaults that conflicted with Firefox menus
+        if (
+          (feat.id === 'uness.anki' || feat.id === 'hypo.anki') &&
+          target.actions.openActive &&
+          target.actions.openActive.length === 1 &&
+          target.actions.openActive[0].key === 'a' &&
+          target.actions.openActive[0].alt === true &&
+          !target.actions.openActive[0].ctrl &&
+          !target.actions.openActive[0].meta
+        ) {
+          target.actions.openActive = [{ key: 'a' }];
+        }
+        if (
+          feat.id === 'uness.anki' &&
+          target.actions.openErrors &&
+          target.actions.openErrors.length === 1 &&
+          target.actions.openErrors[0].key === 'e' &&
+          target.actions.openErrors[0].alt === true &&
+          !target.actions.openErrors[0].ctrl &&
+          !target.actions.openErrors[0].meta
+        ) {
+          target.actions.openErrors = [{ key: 'e' }];
+        }
         if (storedFeat.options && typeof storedFeat.options === 'object') {
           for (const opt of feat.options || []) {
             if (Object.prototype.hasOwnProperty.call(storedFeat.options, opt.id)) {

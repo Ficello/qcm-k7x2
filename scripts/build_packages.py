@@ -10,20 +10,23 @@ DIST_DIR = EXT_ROOT / "dist"
 SITE_DIR = EXT_ROOT / "site"
 DOCS_DIR = EXT_ROOT / "docs"
 
-CORE_INCLUDE_DIRS = ("icons", "src/core", "src/adapters", "src/content", "ui")
+CORE_INCLUDE_DIRS = ("icons", "src/core", "src/adapters", "src/content", "src/background", "ui")
 CORE_INCLUDE_FILES = ("README.md",)
 
 USERSCRIPT_HEADER = """// ==UserScript==
-// @name         QCM Clavier
-// @namespace    https://local.edn/qcm-clavier
+// @name         Connecteur EDN
+// @author       Angelo Marcis
+// @namespace    https://anki-edn.fr/connecteur-edn
 // @version      {version}
-// @description  Raccourcis clavier personnalisables pour EDN.fr, Hypocampus, UNESS, Asclepia et Refoua.
+// @description  Connecteur Anki EDN et raccourcis clavier QCM pour EDN.fr, Hypocampus, UNESS (LiSA & BNE), Asclepia et Refoua.
 // @match        *://*.edn.fr/*
 // @match        *://*.hypocampus.fr/*
 // @match        *://*.uness.fr/*
 // @match        https://*.asclepia.io/*
 // @match        https://refoua.fr/*
 // @match        https://refoua.vercel.app/*
+// @match        https://ficello.github.io/qcm-k7x2/*
+// @match        https://c2su.github.io/Anki_EDN/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -32,27 +35,27 @@ USERSCRIPT_HEADER = """// ==UserScript==
 
 """
 
-FRIEND_GUIDE = """# Installer QCM Clavier
+FRIEND_GUIDE = """# Installer Connecteur EDN
 
-Choisissez la méthode correspondant à votre navigateur.
+Extension web officielle Anki EDN par Angelo Marcis. Choisissez la méthode correspondant à votre navigateur.
 
 ## 1. Méthode universelle : Safari (Mac / iPhone / iPad) et tout navigateur
 
-Le fichier `qcm-clavier.user.js` fonctionne directement sans signature développeur :
+Le fichier `connecteur-edn.user.js` fonctionne directement sans signature développeur :
 
 - **Sur Safari (Mac / iPhone / iPad)** :
   1. Installer l'extension gratuite **Userscripts** depuis l'App Store.
   2. Activer **Userscripts** dans Safari > Réglages > Extensions.
-  3. Ouvrir le dossier choisi par Userscripts et y copier `qcm-clavier.user.js`.
+  3. Ouvrir le dossier choisi par Userscripts et y copier `connecteur-edn.user.js`.
 - **Sur Chrome, Edge, Brave, Opera, Vivaldi ou Firefox** :
   1. Installer **Tampermonkey** ou **Violentmonkey** depuis le store du navigateur.
-  2. Glisser-déposer `qcm-clavier.user.js` dans le navigateur (ou l'importer via le tableau de bord de Tampermonkey).
+  2. Glisser-déposer `connecteur-edn.user.js` dans le navigateur (ou l'importer via le tableau de bord de Tampermonkey).
 
 **Configurer ses touches en mode Userscript** : sur n'importe quelle page EDN.fr, Hypocampus, UNESS ou Asclepia, appuyez sur `Alt + Maj + K` (ou passez par le menu de l'extension Userscripts / Tampermonkey > *Configurer QCM Clavier*).
 
 ## 2. Chrome, Edge, Brave, Opera, Vivaldi, Arc (archive Chromium)
 
-1. Décompresser `QCM-Clavier-Chromium.zip` dans un dossier fixe (ne pas le supprimer ensuite).
+1. Décompresser `Connecteur-EDN-Chromium.zip` dans un dossier fixe (ne pas le supprimer ensuite).
 2. Ouvrir la page des extensions du navigateur :
    - Chrome : `chrome://extensions`
    - Edge : `edge://extensions`
@@ -67,16 +70,16 @@ Le fichier `qcm-clavier.user.js` fonctionne directement sans signature développ
 - **Test immédiat (`about:debugging`)** :
   1. Ouvrir `about:debugging#/runtime/this-firefox`.
   2. Cliquer sur **Charger un module complémentaire temporaire…**.
-  3. Sélectionner `QCM-Clavier-Firefox.xpi` (ou le `manifest.json` après décompression).
-  4. Dans `about:addons` > **QCM Clavier** > **Permissions**, autoriser l'accès aux sites si nécessaire.
-- **Installation permanente** : possible sur Firefox Developer Edition / Nightly (`about:config` > `xpinstall.signatures.required = false`, puis installer `QCM-Clavier-Firefox.xpi` depuis `about:addons`), ou avec la méthode universelle `qcm-clavier.user.js`.
+  3. Sélectionner `Connecteur-EDN-Firefox.xpi` (ou le `manifest.json` après décompression).
+  4. Dans `about:addons` > **Connecteur EDN** > **Permissions**, autoriser l'accès aux sites si nécessaire.
+- **Installation permanente** : installer la version signée depuis Firefox Add-ons (AMO), ou utiliser `connecteur-edn.user.js`.
 
 ## 4. Safari natif sur Mac (avec Xcode)
 
-1. Décompresser `QCM-Clavier-Safari-Source.zip`.
+1. Décompresser `Connecteur-EDN-Safari-Source.zip`.
 2. Ouvrir le Terminal dans le dossier extrait et lancer :
    `sh scripts/build_safari_mac.sh`
-3. Cliquer sur **Play** (`Cmd + R`) dans Xcode, puis activer **QCM Clavier** dans Safari > Réglages > Extensions.
+3. Cliquer sur **Play** (`Cmd + R`) dans Xcode, puis activer **Connecteur EDN** dans Safari > Réglages > Extensions.
 """
 
 
@@ -109,12 +112,14 @@ def _build_userscript(dest_path: Path, version: str):
         EXT_ROOT / "src" / "core" / "storage.js",
         EXT_ROOT / "src" / "core" / "keybind.js",
         EXT_ROOT / "src" / "core" / "dom.js",
+        EXT_ROOT / "src" / "core" / "anki_connector.js",
         EXT_ROOT / "src" / "adapters" / "edn.js",
         EXT_ROOT / "src" / "adapters" / "hypocampus.js",
         EXT_ROOT / "src" / "adapters" / "uness.js",
         EXT_ROOT / "src" / "adapters" / "asclepia.js",
         EXT_ROOT / "src" / "adapters" / "refoua.js",
         EXT_ROOT / "src" / "content" / "main.js",
+        EXT_ROOT / "src" / "content" / "install_handshake.js",
         EXT_ROOT / "src" / "userscript" / "panel.js",
     ]
     chunks = [USERSCRIPT_HEADER.format(version=version), "(function () {\n  'use strict';\n"]
@@ -132,7 +137,8 @@ SITE_HTML = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>QCM Clavier - Installation</title>
+  <title>Connecteur EDN - Installation</title>
+  <link rel="icon" type="image/png" href="files/icon128.png">
   <style>
     :root {
       --bg: #f7f7f8;
@@ -143,6 +149,9 @@ SITE_HTML = r"""<!doctype html>
       --muted: #52525b;
       --accent: #1d4ed8;
       --accent-hover: #1e40af;
+      --ok-bg: #ecfdf5;
+      --ok-border: #a7f3d0;
+      --ok-text: #065f46;
     }
     * { box-sizing: border-box; }
     body {
@@ -158,11 +167,28 @@ SITE_HTML = r"""<!doctype html>
       margin: 0 auto;
       padding: 32px 16px 48px;
     }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .header img {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      flex-shrink: 0;
+    }
     h1 {
-      margin: 0 0 6px;
+      margin: 0 0 2px;
       font-size: 22px;
       font-weight: 600;
       letter-spacing: -0.01em;
+    }
+    .author {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
     }
     .lead {
       margin: 0 0 20px;
@@ -195,6 +221,9 @@ SITE_HTML = r"""<!doctype html>
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 18px;
+    }
+    .card + .card {
+      margin-top: 14px;
     }
     .card h2 {
       margin: 0 0 8px;
@@ -242,12 +271,34 @@ SITE_HTML = r"""<!doctype html>
       font-size: 13px;
       color: var(--muted);
     }
+    .status-line {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .status-line.detected {
+      border-color: var(--ok-border);
+      background: var(--ok-bg);
+      color: var(--ok-text);
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>QCM Clavier</h1>
-    <p class="lead">Raccourcis clavier personnalisables pour EDN.fr, Hypocampus, UNESS, Asclepia et Refoua.</p>
+    <div class="header">
+      <img src="files/icon128.png" alt="Logo Anki EDN" width="48" height="48">
+      <div>
+        <h1>Connecteur EDN</h1>
+        <p class="author">Anki EDN &mdash; par Angelo Marcis</p>
+      </div>
+    </div>
+    <p class="lead">Passerelle directe vers vos cartes Anki EDN et raccourcis clavier QCM sur EDN.fr, Hypocampus, UNESS (LiSA &amp; BNE), Asclepia et Refoua.</p>
 
     <nav class="tabs" id="tabs" role="tablist">
       <button type="button" class="tab" data-tab="safari">Safari</button>
@@ -257,6 +308,13 @@ SITE_HTML = r"""<!doctype html>
     </nav>
 
     <section class="card" id="panel"></section>
+
+    <section class="card" id="verify-card">
+      <h2>Tester la connexion avec Anki</h2>
+      <div id="ext-status" class="status-line">Extension non encore détectée sur cette page</div>
+      <p>Une fois l'extension installée, cliquez ci-dessous pour vérifier que votre navigateur ouvre bien Anki EDN et valider l'installation dans l'add-on.</p>
+      <a class="btn" id="ping-btn" href="anki-edn://ping?src=install&ext=1.0.0">Tester le lien vers Anki</a>
+    </section>
   </main>
 
   <script>
@@ -265,21 +323,21 @@ SITE_HTML = r"""<!doctype html>
         safari: {
           title: 'Safari (Mac, iPhone, iPad)',
           desc: 'Installation directe sans signature développeur via l\'extension gratuite Userscripts.',
-          primary: { label: 'Télécharger qcm-clavier.user.js', href: 'files/qcm-clavier.user.js' },
-          secondary: { label: 'Sources Xcode (Mac)', href: 'files/QCM-Clavier-Safari-Source.zip' },
+          primary: { label: 'Télécharger connecteur-edn.user.js', href: 'files/connecteur-edn.user.js' },
+          secondary: { label: 'Sources Xcode (Mac)', href: 'files/Connecteur-EDN-Safari-Source.zip' },
           steps: [
             'Installer l\'extension gratuite <strong>Userscripts</strong> depuis l\'App Store et l\'activer dans Safari > Réglages > Extensions.',
-            'Télécharger <code>qcm-clavier.user.js</code> et le placer dans le dossier choisi par Userscripts.',
-            'Ouvrir EDN.fr, Hypocampus, UNESS ou Asclepia et appuyer sur <kbd>Alt</kbd> + <kbd>Maj</kbd> + <kbd>K</kbd> pour régler vos touches.'
+            'Télécharger <code>connecteur-edn.user.js</code> et le placer dans le dossier choisi par Userscripts.',
+            'Recharger cette page puis cliquer sur <strong>Tester le lien vers Anki</strong> ci-dessous.'
           ]
         },
         chromium: {
           title: 'Chrome, Edge, Brave, Opera, Vivaldi, Arc',
           desc: 'Archive WebExtension prête à charger en un clic.',
-          primary: { label: 'Télécharger QCM-Clavier-Chromium.zip', href: 'files/QCM-Clavier-Chromium.zip' },
-          secondary: { label: 'Version Userscript', href: 'files/qcm-clavier.user.js' },
+          primary: { label: 'Télécharger Connecteur-EDN-Chromium.zip', href: 'files/Connecteur-EDN-Chromium.zip' },
+          secondary: { label: 'Version Userscript', href: 'files/connecteur-edn.user.js' },
           steps: [
-            'Décompresser <code>QCM-Clavier-Chromium.zip</code> dans un dossier fixe.',
+            'Décompresser <code>Connecteur-EDN-Chromium.zip</code> dans un dossier fixe.',
             'Ouvrir <code>chrome://extensions</code> (ou <code>edge://extensions</code>, <code>brave://extensions</code>) et activer le <strong>Mode développeur</strong>.',
             'Cliquer sur <strong>Charger l\'extension non empaquetée</strong> et sélectionner le dossier décompressé.'
           ]
@@ -287,21 +345,21 @@ SITE_HTML = r"""<!doctype html>
         firefox: {
           title: 'Mozilla Firefox',
           desc: 'Utilisable via Tampermonkey (permanent) ou en module WebExtension.',
-          primary: { label: 'Télécharger qcm-clavier.user.js', href: 'files/qcm-clavier.user.js' },
-          secondary: { label: 'Archive .xpi', href: 'files/QCM-Clavier-Firefox.xpi' },
+          primary: { label: 'Télécharger connecteur-edn.user.js', href: 'files/connecteur-edn.user.js' },
+          secondary: { label: 'Archive .xpi', href: 'files/Connecteur-EDN-Firefox.xpi' },
           steps: [
-            '<strong>Méthode permanente recommandée :</strong> installer <strong>Tampermonkey</strong> ou <strong>Violentmonkey</strong>, puis importer <code>qcm-clavier.user.js</code> (réglages via <kbd>Alt</kbd> + <kbd>Maj</kbd> + <kbd>K</kbd>).',
-            '<strong>Sinon (temporaire) :</strong> ouvrir <code>about:debugging#/runtime/this-firefox</code> et charger <code>QCM-Clavier-Firefox.xpi</code>.',
-            'Si Firefox demande l\'accès aux sites, l\'autoriser dans <code>about:addons</code> > QCM Clavier > Permissions.'
+            '<strong>Méthode permanente recommandée :</strong> installer <strong>Tampermonkey</strong> ou <strong>Violentmonkey</strong>, puis importer <code>connecteur-edn.user.js</code>.',
+            '<strong>Sinon (temporaire) :</strong> ouvrir <code>about:debugging#/runtime/this-firefox</code> et charger <code>Connecteur-EDN-Firefox.xpi</code>.',
+            'Si Firefox demande l\'accès aux sites, l\'autoriser dans <code>about:addons</code> > Connecteur EDN > Permissions.'
           ]
         },
         universal: {
           title: 'Script universel (tous navigateurs)',
           desc: 'Un seul fichier compatible Safari, Firefox, Chrome, Edge, Brave, Opera et Vivaldi.',
-          primary: { label: 'Télécharger qcm-clavier.user.js', href: 'files/qcm-clavier.user.js' },
+          primary: { label: 'Télécharger connecteur-edn.user.js', href: 'files/connecteur-edn.user.js' },
           steps: [
             'Installer <strong>Userscripts</strong> (Safari) ou <strong>Tampermonkey</strong> / <strong>Violentmonkey</strong> (autres navigateurs).',
-            'Importer le fichier <code>qcm-clavier.user.js</code>.',
+            'Importer le fichier <code>connecteur-edn.user.js</code>.',
             'Sur n\'importe quel site QCM, appuyer sur <kbd>Alt</kbd> + <kbd>Maj</kbd> + <kbd>K</kbd> pour personnaliser vos raccourcis.'
           ]
         }
@@ -332,6 +390,24 @@ SITE_HTML = r"""<!doctype html>
           '<div class="note">Raccourcis par défaut : chiffres 1-0 (ou rangée AZERTY) pour cocher, Entrée pour valider, flèches pour naviguer/défiler, ù pour drapeau.</div>';
       }
 
+      const extStatus = document.getElementById('ext-status');
+      const pingBtn = document.getElementById('ping-btn');
+
+      function updateExtStatus(version) {
+        if (!version) return;
+        extStatus.textContent = 'Extension détectée (v' + version + ')';
+        extStatus.classList.add('detected');
+        pingBtn.href = 'anki-edn://ping?src=install&ext=' + encodeURIComponent(version);
+      }
+
+      if (document.documentElement.dataset.connecteurEdn) {
+        updateExtStatus(document.documentElement.dataset.connecteurEdn);
+      }
+      window.addEventListener('connecteur-edn:ready', function (ev) {
+        const ver = ev && ev.detail && ev.detail.version ? ev.detail.version : '1.0.0';
+        updateExtStatus(ver);
+      });
+
       tabs.forEach((t) => t.addEventListener('click', () => render(t.dataset.tab)));
       render(detectTab());
     })();
@@ -343,6 +419,7 @@ SITE_HTML = r"""<!doctype html>
 
 def _build_site(artifacts: list[Path]) -> list[Path]:
     outputs = []
+    icon_src = EXT_ROOT / "icons" / "icon128.png"
     for target_dir, add_nojekyll in ((SITE_DIR, False), (DOCS_DIR, True)):
         files_dir = target_dir / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
@@ -352,6 +429,11 @@ def _build_site(artifacts: list[Path]) -> list[Path]:
                 dest = files_dir / src.name
                 shutil.copy2(src, dest)
                 outputs.append(dest)
+
+        if icon_src.is_file():
+            icon_dest = files_dir / "icon128.png"
+            shutil.copy2(icon_src, icon_dest)
+            outputs.append(icon_dest)
 
         robots = target_dir / "robots.txt"
         robots.write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
@@ -375,16 +457,18 @@ def build_all() -> list[Path]:
     version = manifest.get("version", "1.0.0")
 
     chromium_manifest = {k: v for k, v in manifest.items() if k != "browser_specific_settings"}
-    chromium_zip = DIST_DIR / "QCM-Clavier-Chromium.zip"
+    if "background" in chromium_manifest:
+        chromium_manifest["background"] = {"service_worker": "src/background/background.js"}
+    chromium_zip = DIST_DIR / "Connecteur-EDN-Chromium.zip"
     _write_archive(chromium_zip, chromium_manifest, include_safari_script=False)
 
-    firefox_xpi = DIST_DIR / "QCM-Clavier-Firefox.xpi"
+    firefox_xpi = DIST_DIR / "Connecteur-EDN-Firefox.xpi"
     _write_archive(firefox_xpi, manifest, include_safari_script=False)
 
-    safari_zip = DIST_DIR / "QCM-Clavier-Safari-Source.zip"
+    safari_zip = DIST_DIR / "Connecteur-EDN-Safari-Source.zip"
     _write_archive(safari_zip, manifest, include_safari_script=True)
 
-    userscript = DIST_DIR / "qcm-clavier.user.js"
+    userscript = DIST_DIR / "connecteur-edn.user.js"
     _build_userscript(userscript, version)
 
     guide = DIST_DIR / "GUIDE_INSTALLATION_AMIS.md"

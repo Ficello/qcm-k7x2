@@ -8,12 +8,18 @@
   <input id="text-input" type="text" value="">
   <input id="checkbox-input" type="checkbox">
   <textarea id="textarea-input"></textarea>
+  <div id="test-sandbox" style="position:fixed; left:-9999px; top:0; width:800px;"></div>
   <pre id="results"></pre>
 
   <script src="../src/core/schema.js"></script>
   <script src="../src/core/storage.js"></script>
   <script src="../src/core/keybind.js"></script>
   <script src="../src/core/dom.js"></script>
+  <script src="../src/core/anki_connector.js"></script>
+  <script src="../src/adapters/edn.js"></script>
+  <script src="../src/adapters/uness.js"></script>
+  <script src="../src/adapters/hypocampus.js"></script>
+  <script src="../src/adapters/asclepia.js"></script>
   <script>
     (function () {
       const results = [];
@@ -130,6 +136,368 @@
         assert(res.added && res.flags.has('q3'));
         res = store.toggleFlag('exam1', 'q3');
         assert(!res.added && !res.flags.has('q3'));
+      });
+
+      test('anki_connector builds sanitized URIs and extracts medical keywords', () => {
+        const anki = globalThis.QCMK.anki;
+        assert(anki, 'QCMK.anki missing');
+        assertEq(anki.normalizeOic('OIC-034-01-B-02'), '034-01-B');
+        assertEq(anki.normalizeItem('169'), '169');
+        assertEq(anki.normalizeSdd('SDD-16'), '016');
+        assertEq(anki.normalizeQid('UNESS:Q:107070'), 'uness:q:107070');
+
+        const kw = anki.extractMedicalKeywords('Chez un patient présentant une pneumocystose avec cotrimoxazole et bictegravir, quelles propositions sont exactes ?', 4);
+        assert(kw.indexOf('pneumocystose') !== -1, 'missing pneumocystose');
+        assert(kw.indexOf('cotrimoxazole') !== -1, 'missing cotrimoxazole');
+        assert(kw.indexOf('patient') === -1, 'stopword patient should be filtered');
+        assert(kw.indexOf('propositions') === -1, 'stopword propositions should be filtered');
+
+        const uri = anki.buildAnkiEdnUri({
+          action: 'qcm',
+          src: 'uness',
+          qid: ['uness:q:107070'],
+          item: '169',
+          q: ['pneumocystose', 'deck:*', 'AND'],
+          err: '<b>Prop B</b> omission indispensable',
+        });
+        assert(uri && uri.startsWith('anki-edn://qcm?'), 'invalid uri: ' + uri);
+        assert(uri.indexOf('deck%3A*') === -1, 'Anki operator leaked into URI');
+        assert(uri.indexOf('Prop%20B%20omission%20indispensable') !== -1, 'err note not sanitized');
+        assert(uri.length <= anki.MAX_URI_LENGTH, 'URI exceeded max length');
+      });
+
+      test('uness adapter extracts entrainement-edn correction errors (commission + omission PMZ)', () => {
+        const uness = globalThis.QCMK.adapters.uness;
+        const sandbox = document.getElementById('test-sandbox');
+        sandbox.innerHTML = [
+          '<div class="plugin-body-header-container">',
+          '  <i data-toggle="tooltip" data-original-title="N° 169. Infections à VIH."></i>',
+          '</div>',
+          '<div id="questionsDiv">',
+          '  <div id="q107070" class="que sngmultichoice">',
+          '    <div class="content">',
+          '      <div class="row plugin-container container-correction-type-partially-correct">',
+          '        <div class="qtext">Concernant la prise en charge du VIH :</div>',
+          '        <div class="ablock"><div class="answer">',
+          '          <div class="answer-type-wrong active"><input type="checkbox" checked="checked"><label>Prescrire interféron alfa en première intention</label></div>',
+          '          <div class="answer-type-right"><span class="correction-type-essential"></span><input type="checkbox"><label>Trithérapie par bictegravir après sérologie</label></div>',
+          '        </div></div>',
+          '        <div class="feedback mb-4"><div class="generalfeedback">Le traitement de référence repose sur le bictegravir.</div></div>',
+          '      </div>',
+          '    </div>',
+          '  </div>',
+          '</div>',
+        ].join('');
+
+        const hooks = uness._testHooks;
+        assert(hooks.isTrainingCorrectionPage(), 'should detect correction DOM');
+        assertEq(hooks.extractTrainingItemNumber(), '169');
+
+        const qEl = document.getElementById('q107070');
+        const info = hooks.inspectCorrectionQuestion(qEl, '169');
+        assert(info && info.hasError === true, 'question should be marked as having error');
+        assertEq(info.qid, 'uness:q:107070');
+        assert(info.errNote.indexOf('(indispensable)') !== -1, 'PMZ essential omission should be prioritized: ' + info.errNote);
+
+        const allUri = hooks.buildQuestionUri(info, false);
+        const errUri = hooks.buildQuestionUri(info, true);
+        assert(allUri.indexOf('qid=uness%3Aq%3A107070') !== -1, 'allUri missing qid');
+        assert(allUri.indexOf('item=169') !== -1, 'allUri missing item');
+        assert(errUri.indexOf('err=') !== -1, 'errUri missing err');
+
+        const mockCtx = {
+          isEnabled: (id) => id === 'uness.anki',
+          option: () => true,
+        };
+        hooks.refreshAnkiUi(mockCtx);
+        const topBar = document.getElementById('qcmk-uness-anki-bar');
+        assert(topBar, 'top Anki bar not injected');
+        assert(topBar.textContent.indexOf('mes erreurs (1)') !== -1, 'missing error count in top bar');
+        assert(qEl.querySelector('.qcmk-anki-q-bar'), 'per-question bar not injected');
+
+        uness.destroy();
+        sandbox.innerHTML = '';
+      });
+
+      test('uness adapter extracts livret.uness.fr Fiche_LiSA OIC cards', () => {
+        const uness = globalThis.QCMK.adapters.uness;
+        const sandbox = document.getElementById('test-sandbox');
+        sandbox.innerHTML = [
+          '<h1 id="firstHeading" class="firstHeading">Fiche_LiSA:Suites de couches</h1>',
+          '<div id="mw-normal-catlinks"><ul><li><a href="/lisa/2026/Cat%C3%A9gorie:OIC-034">Catégorie:OIC-034</a></li></ul></div>',
+          '<div class="mw-parser-output">',
+          '  <div class="navbox modele-oic rang-B">',
+          '    <table class="wikitable">',
+          '      <tr><th>Identifiant</th><td>OIC-034-01-B</td></tr>',
+          '      <tr><th>Intitulé</th><td>Complications thromboemboliques du post-partum</td></tr>',
+          '    </table>',
+          '  </div>',
+          '</div>',
+        ].join('');
+
+        const hooks = uness._testHooks;
+        const lisaCtx = hooks.extractLisaContext();
+        assertEq(lisaCtx.itemNum, '034');
+
+        const mockCtx = {
+          isEnabled: (id) => id === 'uness.anki',
+          option: () => true,
+        };
+        hooks.renderLisaAnkiUi(mockCtx);
+        const lisaBar = document.getElementById('qcmk-lisa-anki-bar');
+        assert(lisaBar, 'LiSA header bar not injected');
+        assert(lisaBar.textContent.indexOf('Item 034') !== -1, 'LiSA bar missing item 034');
+        const oicBtn = sandbox.querySelector('.qcmk-lisa-oic-btn-wrap button');
+        assert(oicBtn, 'LiSA OIC button not injected');
+        const uri = oicBtn.getAttribute('data-anki-uri') || '';
+        assert(uri.indexOf('oic=034-01-B') !== -1, 'LiSA OIC URI missing oic=034-01-B: ' + uri);
+        assert(uri.indexOf('thromboemboliques') !== -1, 'LiSA OIC URI missing title keyword: ' + uri);
+
+        uness.destroy();
+        sandbox.innerHTML = '';
+      });
+
+      test('hypocampus adapter extracts item/OIC/keywords and injects Anki EDN bar', () => {
+        const hypo = globalThis.QCMK.adapters.hypocampus;
+        assert(hypo && hypo._testHooks, 'hypocampus _testHooks missing');
+        const sandbox = document.getElementById('test-sandbox');
+        sandbox.innerHTML = [
+          '<main>',
+          '  <div class="question-wrapper" data-question-id="4281">',
+          '    <div class="badge">Item 169 - Rang A</div>',
+          '    <p>Concernant la prophylaxie de la pneumocystose (OIC-169-02-A) par cotrimoxazole :</p>',
+          '    <label><input type="checkbox"><span>Prescrire cotrimoxazole si CD4 bas</span></label>',
+          '  </div>',
+          '</main>',
+        ].join('');
+
+        const mockCtx = {
+          isEnabled: (id) => id === 'hypo.anki',
+          option: () => true,
+        };
+        const hooks = hypo._testHooks;
+        const info = hooks.extractHypocampusContext();
+        assert(info && info.hasContext, 'hypocampus context not detected');
+        assertEq(info.qid, 'hypo:q:4281');
+        assertEq(info.items[0], '169');
+        assertEq(info.oics[0], '169-02-A');
+        assertEq(info.rang, 'A');
+
+        hooks.renderAnkiUi(mockCtx);
+        const bar = document.getElementById('qcmk-hypo-anki-bar');
+        assert(bar, 'hypocampus Anki bar not injected');
+        assert(bar.textContent.indexOf('Item 169') !== -1, 'hypo bar missing Item 169');
+        const btn = bar.querySelector('button');
+        assert(btn, 'hypocampus Anki button missing');
+        const uri = btn.getAttribute('data-anki-uri') || '';
+        assert(uri.indexOf('src=hypocampus') !== -1, 'missing src=hypocampus: ' + uri);
+        assert(uri.indexOf('item=169') !== -1, 'missing item=169: ' + uri);
+        assert(uri.indexOf('oic=169-02-A') !== -1, 'missing oic=169-02-A: ' + uri);
+        assert(uri.indexOf('qid=hypo%3Aq%3A4281') !== -1, 'missing qid: ' + uri);
+
+        // Context menu handler with selectionText
+        let launched = false;
+        const origLaunch = globalThis.QCMK.anki.launchAnkiUri;
+        let lastLaunchedUri = '';
+        globalThis.QCMK.anki.launchAnkiUri = (u) => {
+          launched = true;
+          lastLaunchedUri = u;
+          return true;
+        };
+        try {
+          const res = hypo.onContextMenuAnki({ type: 'qcmk-open-anki', mode: 'active', selectionText: 'pneumocystose OIC-169-02-A' });
+          assert(launched && res && res.ok === true, 'onContextMenuAnki should launch URI and return ok:true');
+          assert(lastLaunchedUri.indexOf('pneumocystose') !== -1, 'context menu URI missing selection keyword');
+        } finally {
+          globalThis.QCMK.anki.launchAnkiUri = origLaunch;
+        }
+
+        hypo.destroy();
+        assert(!document.getElementById('qcmk-hypo-anki-bar'), 'hypo bar not removed on destroy');
+        sandbox.innerHTML = '';
+      });
+
+      test('Anki shortcuts default to A/E and migrate legacy Alt+A/E and Alt+Shift+A/E', () => {
+        const az = storage.buildDefaults('azerty');
+        assertEq(az.features['hypo.anki'].actions.openActive[0].key, 'a');
+        assert(!az.features['hypo.anki'].actions.openActive[0].alt, 'hypo openActive should not use alt');
+        assert(!az.features['hypo.anki'].actions.openActive[0].shift, 'hypo openActive should not use shift');
+        assertEq(az.features['uness.anki'].actions.openActive[0].key, 'a');
+        assertEq(az.features['uness.anki'].actions.openErrors[0].key, 'e');
+
+        const legacy = {
+          preset: 'azerty',
+          features: {
+            'hypo.anki': { enabled: true, actions: { openActive: [{ key: 'a', alt: true }] } },
+            'uness.anki': {
+              enabled: true,
+              actions: {
+                openActive: [{ key: 'a', alt: true, shift: true }],
+                openErrors: [{ key: 'e', alt: true, shift: true }],
+              },
+            },
+          },
+        };
+        const migrated = storage.mergeSettings(legacy);
+        assertEq(migrated.features['hypo.anki'].actions.openActive[0].key, 'a');
+        assert(!migrated.features['hypo.anki'].actions.openActive[0].alt, 'migrated hypo openActive should drop alt');
+        assert(!migrated.features['uness.anki'].actions.openActive[0].alt, 'migrated uness openActive should drop alt');
+        assert(!migrated.features['uness.anki'].actions.openErrors[0].alt, 'migrated uness openErrors should drop alt');
+      });
+
+      test('uness onContextMenuAnki fallback works outside correction/LiSA pages', () => {
+        const uness = globalThis.QCMK.adapters.uness;
+        const sandbox = document.getElementById('test-sandbox');
+        sandbox.innerHTML = '<div id="region-main"><p>Question sur la pneumocystose (OIC-169-02-A) et cotrimoxazole.</p></div>';
+        let launchedUri = '';
+        const origLaunch = globalThis.QCMK.anki.launchAnkiUri;
+        globalThis.QCMK.anki.launchAnkiUri = (u) => { launchedUri = u; return true; };
+        try {
+          const res = uness.onContextMenuAnki({ type: 'qcmk-open-anki', mode: 'active', selectionText: '' });
+          assert(res && res.ok === true, 'uness onContextMenuAnki fallback should succeed');
+          assert(launchedUri.indexOf('169-02-A') !== -1, 'fallback URI missing OIC: ' + launchedUri);
+        } finally {
+          globalThis.QCMK.anki.launchAnkiUri = origLaunch;
+          sandbox.innerHTML = '';
+        }
+      });
+
+      test('hypocampus onContextMenuAnki fallback works on Tailwind page without inputs or correction class', () => {
+        const hypo = globalThis.QCMK.adapters.hypocampus;
+        const sandbox = document.getElementById('test-sandbox');
+        sandbox.innerHTML = [
+          '<main>',
+          '  <scr' + 'ipt>var secretScriptToken = "ignoreThisScriptNoise";</scr' + 'ipt>',
+          '  <div><p>Prise en charge de la pyelonephrite aigue chez la femme enceinte par ceftriaxone.</p></div>',
+          '</main>',
+        ].join('');
+        let launchedUri = '';
+        const origLaunch = globalThis.QCMK.anki.launchAnkiUri;
+        globalThis.QCMK.anki.launchAnkiUri = (u) => { launchedUri = u; return true; };
+        try {
+          const res = hypo.onContextMenuAnki({ type: 'qcmk-open-anki', mode: 'active', selectionText: '' });
+          assert(res && res.ok === true, 'hypocampus fallback should succeed');
+          assert(launchedUri.indexOf('anki-edn://qcm?') === 0, 'invalid URI: ' + launchedUri);
+          assert(launchedUri.indexOf('pyelonephrite') !== -1, 'missing keyword in URI: ' + launchedUri);
+          assert(launchedUri.indexOf('secretScriptToken') === -1, 'script text leaked into URI: ' + launchedUri);
+        } finally {
+          globalThis.QCMK.anki.launchAnkiUri = origLaunch;
+          sandbox.innerHTML = '';
+        }
+      });
+
+      test('uness onContextMenuAnki falls back when correction marker exists without .que wrapper', () => {
+        const uness = globalThis.QCMK.adapters.uness;
+        const sandbox = document.getElementById('test-sandbox');
+        sandbox.innerHTML = '<div id="region-main"><div class="answer-type-right">Traitement par amoxicilline</div></div>';
+        let launchedUri = '';
+        const origLaunch = globalThis.QCMK.anki.launchAnkiUri;
+        globalThis.QCMK.anki.launchAnkiUri = (u) => { launchedUri = u; return true; };
+        try {
+          const res = uness.onContextMenuAnki({ type: 'qcmk-open-anki', mode: 'active', selectionText: '' });
+          assert(res && res.ok === true, 'uness correction-marker fallback should succeed');
+          assert(launchedUri.indexOf('amoxicilline') !== -1, 'missing keyword in URI: ' + launchedUri);
+        } finally {
+          globalThis.QCMK.anki.launchAnkiUri = origLaunch;
+          sandbox.innerHTML = '';
+        }
+      });
+
+      test('uness onContextMenuAnki works on LiSA heading without item number', () => {
+        const uness = globalThis.QCMK.adapters.uness;
+        const sandbox = document.getElementById('test-sandbox');
+        sandbox.innerHTML = '<h1 id="firstHeading" class="firstHeading">Fiche_LiSA:Endocardite infectieuse</h1>';
+        let launchedUri = '';
+        const origLaunch = globalThis.QCMK.anki.launchAnkiUri;
+        globalThis.QCMK.anki.launchAnkiUri = (u) => { launchedUri = u; return true; };
+        try {
+          const res = uness.onContextMenuAnki({ type: 'qcmk-open-anki', mode: 'active', selectionText: '' });
+          assert(res && res.ok === true, 'uness LiSA heading fallback should succeed');
+          assert(launchedUri.indexOf('endocardite') !== -1 || launchedUri.indexOf('infectieuse') !== -1, 'missing LiSA heading keyword: ' + launchedUri);
+        } finally {
+          globalThis.QCMK.anki.launchAnkiUri = origLaunch;
+          sandbox.innerHTML = '';
+        }
+      });
+
+      test('schema includes all newly added features across EDN, Hypocampus, UNESS, Asclepia', () => {
+        ['edn.anki', 'edn.pin', 'hypo.flags', 'hypo.keyHints', 'hypo.inlineScores', 'hypo.courseLink', 'hypo.anki', 'uness.qroc', 'uness.nav', 'uness.keyHints', 'uness.favorite', 'asclepia.nav', 'asclepia.keyHints', 'asclepia.inlineScores', 'asclepia.anki'].forEach((id) => {
+          assert(schema.byId[id], 'missing feature in schema: ' + id);
+        });
+      });
+
+      test('edn adapter sorts/filters /notions and extracts QRM correction errors + fiche panels', () => {
+        const edn = globalThis.QCMK.adapters.edn;
+        const sandbox = document.getElementById('test-sandbox');
+        sandbox.innerHTML = [
+          '<app-training-detail-header>Item 1 - Relation medecin-malade</app-training-detail-header>',
+          '<app-training-knowledge-review>',
+          '  <div class="list-wrap">',
+          '    <div class="border"><span class="title">09-Prise en charge</span><app-notion-rank>B</app-notion-rank><span>40%</span></div>',
+          '    <div class="border"><span class="title">01-Definition</span><app-notion-rank>A</app-notion-rank><span>80%</span></div>',
+          '  </div>',
+          '</app-training-knowledge-review>',
+        ].join('');
+
+        const hooks = edn._testHooks;
+        const mockCtx = { isEnabled: () => true, option: () => true };
+        hooks.applyNotionsToolbar(mockCtx);
+        const tb = document.getElementById('qcmk-edn-notions-toolbar');
+        assert(tb, 'notions toolbar missing');
+        assert(sandbox.querySelectorAll('.qcmk-edn-notion-anki').length === 2, 'missing notion Anki buttons');
+
+        sandbox.innerHTML = [
+          '<app-training-correction>',
+          '  <app-training-detail-header>Item 169</app-training-detail-header>',
+          '  <div id="mobile-session-questions-container">',
+          '    <div class="q-wrap">',
+          '      <app-question-header><app-notion-rank>A</app-notion-rank><span>0.5/1 pts</span></app-question-header>',
+          '      <app-question-content>Prise en charge du VIH :</app-question-content>',
+          '      <app-question-correction-form>',
+          '        <mat-checkbox class="question-many-should-not mat-mdc-checkbox-checked"><input name="chekbox-many-01JABCDEF1234567890" type="checkbox" checked>Prescrire interferon</mat-checkbox>',
+          '        <mat-checkbox class="question-many-should"><input name="chekbox-many-01JABCDEF1234567891" type="checkbox">Tritherapie par bictegravir</mat-checkbox>',
+          '      </app-question-correction-form>',
+          '    </div>',
+          '  </div>',
+          '</app-training-correction>',
+        ].join('');
+        hooks.applyEdnAnkiConnector(mockCtx);
+        const qWrap = sandbox.querySelector('.q-wrap');
+        const info = hooks.inspectEdnCorrectionQuestion(qWrap, '169');
+        assert(info && info.hasError === true, 'EDN QRM should detect error');
+        assertEq(info.rang, 'A');
+        assert(info.qid && info.qid.startsWith('edn:q:01jabcdef'), 'invalid edn qid: ' + info.qid);
+        assert(document.getElementById('qcmk-edn-anki-bar'), 'EDN top Anki bar missing');
+
+        sandbox.innerHTML = [
+          '<app-course-record>',
+          '  <app-card-title-badge size="small">Item 1</app-card-title-badge>',
+          '  <mat-accordion><mat-expansion-panel><mat-expansion-panel-header>01-Definition <app-notion-rank>A</app-notion-rank></mat-expansion-panel-header></mat-expansion-panel></mat-accordion>',
+          '</app-course-record>',
+        ].join('');
+        hooks.applyEdnAnkiConnector(mockCtx);
+        assert(document.getElementById('qcmk-edn-fiche-anki'), 'EDN fiche Anki bar missing');
+        assert(sandbox.querySelector('.qcmk-edn-fiche-obj-anki'), 'EDN fiche objective Anki button missing');
+
+        edn.destroy();
+        sandbox.innerHTML = '';
+      });
+
+      test('asclepia adapter injects Anki connector on item page', () => {
+        const asclepia = globalThis.QCMK.adapters.asclepia;
+        const sandbox = document.getElementById('test-sandbox');
+        const mockCtx = { isEnabled: () => true, option: () => true };
+        sandbox.innerHTML = [
+          '<div id="scrollable-container">',
+          '  <h1>Item 89 - Alteration de la fonction auditive</h1>',
+          '  <div class="sc-card"><div class="KnowledgeRankFromId__Container-sc-1"><div class="RankLetter-sc-1">A</div></div>Acoumetrie tonale</div>',
+          '</div>',
+        ].join('');
+        asclepia._testHooks.applyAsclepiaAnkiConnector(mockCtx);
+        assert(document.getElementById('qcmk-asclepia-anki-bar'), 'Asclepia Anki bar missing');
+        assert(sandbox.querySelector('.qcmk-asclepia-know-anki'), 'Asclepia knowledge Anki button missing');
+        asclepia.destroy();
+        sandbox.innerHTML = '';
       });
 
       document.getElementById('results').textContent =

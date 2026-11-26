@@ -14,13 +14,18 @@ def test_manifest_is_valid_mv3_and_all_files_exist():
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert data["manifest_version"] == 3
-    assert data["name"] == "QCM Clavier"
+    assert data["name"] == "Connecteur EDN"
+    assert data["author"] == "Angelo Marcis"
     assert "storage" in data["permissions"]
     assert "activeTab" in data["permissions"]
+    assert "contextMenus" in data["permissions"]
+    assert data.get("background", {}).get("scripts") == ["src/background/background.js"]
+    assert (EXT_ROOT / "src/background/background.js").is_file()
 
     gecko = data.get("browser_specific_settings", {}).get("gecko", {})
-    assert gecko.get("id") == "qcm-clavier@local.edn"
+    assert gecko.get("id") == "connecteur-edn@anki-edn.fr"
     assert gecko.get("strict_min_version") == "109.0"
+    assert gecko.get("data_collection_permissions", {}).get("required") == ["none"]
 
     # Check icons
     for size, rel in data["icons"].items():
@@ -35,7 +40,7 @@ def test_manifest_is_valid_mv3_and_all_files_exist():
     assert (EXT_ROOT / data["options_ui"]["page"]).is_file()
 
     # Check content scripts
-    assert len(data["content_scripts"]) == 5
+    assert len(data["content_scripts"]) == 6
     for cs in data["content_scripts"]:
         for js_rel in cs["js"]:
             assert (EXT_ROOT / js_rel).is_file(), f"Missing content script: {js_rel}"
@@ -245,32 +250,34 @@ def test_dist_packages_and_userscript_build_cleanly():
 
     dist_dir = EXT_ROOT / "dist"
     expected_files = [
-        "QCM-Clavier-Chromium.zip",
-        "QCM-Clavier-Firefox.xpi",
-        "QCM-Clavier-Safari-Source.zip",
-        "qcm-clavier.user.js",
+        "Connecteur-EDN-Chromium.zip",
+        "Connecteur-EDN-Firefox.xpi",
+        "Connecteur-EDN-Safari-Source.zip",
+        "connecteur-edn.user.js",
         "GUIDE_INSTALLATION_AMIS.md",
     ]
     for name in expected_files:
         assert (dist_dir / name).is_file(), f"Missing dist artifact: {name}"
 
-    with zipfile.ZipFile(dist_dir / "QCM-Clavier-Chromium.zip") as zf:
+    with zipfile.ZipFile(dist_dir / "Connecteur-EDN-Chromium.zip") as zf:
         names = set(zf.namelist())
         assert "manifest.json" in names
         assert not any(n.startswith("tests/") for n in names)
         c_manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
         assert "browser_specific_settings" not in c_manifest
+        assert c_manifest.get("background", {}).get("service_worker") == "src/background/background.js"
 
-    with zipfile.ZipFile(dist_dir / "QCM-Clavier-Firefox.xpi") as zf:
+    with zipfile.ZipFile(dist_dir / "Connecteur-EDN-Firefox.xpi") as zf:
         f_manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
-        assert f_manifest["browser_specific_settings"]["gecko"]["id"] == "qcm-clavier@local.edn"
+        assert f_manifest["browser_specific_settings"]["gecko"]["id"] == "connecteur-edn@anki-edn.fr"
+        assert f_manifest.get("background", {}).get("scripts") == ["src/background/background.js"]
 
-    with zipfile.ZipFile(dist_dir / "QCM-Clavier-Safari-Source.zip") as zf:
+    with zipfile.ZipFile(dist_dir / "Connecteur-EDN-Safari-Source.zip") as zf:
         s_names = set(zf.namelist())
         assert "manifest.json" in s_names
         assert "scripts/build_safari_mac.sh" in s_names
 
-    us_text = (dist_dir / "qcm-clavier.user.js").read_text(encoding="utf-8")
+    us_text = (dist_dir / "connecteur-edn.user.js").read_text(encoding="utf-8")
     assert "==UserScript==" in us_text
     for host in ("edn.fr", "hypocampus.fr", "uness.fr", "asclepia.io", "refoua.fr"):
         assert host in us_text, f"Missing @match host in userscript: {host}"
@@ -286,15 +293,17 @@ def test_dist_packages_and_userscript_build_cleanly():
         assert (target_dir / "robots.txt").is_file()
         assert "Disallow: /" in (target_dir / "robots.txt").read_text(encoding="utf-8")
         for fname in (
-            "qcm-clavier.user.js",
-            "QCM-Clavier-Chromium.zip",
-            "QCM-Clavier-Firefox.xpi",
-            "QCM-Clavier-Safari-Source.zip",
+            "connecteur-edn.user.js",
+            "Connecteur-EDN-Chromium.zip",
+            "Connecteur-EDN-Firefox.xpi",
+            "Connecteur-EDN-Safari-Source.zip",
+            "icon128.png",
         ):
             assert (target_dir / "files" / fname).is_file(), f"Missing {target_name} file: {fname}"
     assert (EXT_ROOT / "docs" / ".nojekyll").is_file()
     site_html = (EXT_ROOT / "site" / "index.html").read_text(encoding="utf-8")
     assert "noindex, nofollow" in site_html
+    assert "anki-edn://ping" in site_html
     assert "linear-gradient" not in site_html.lower()
     assert "backdrop-filter" not in site_html.lower()
     assert not emoji_re.search(site_html), "Emoji found in site/index.html"

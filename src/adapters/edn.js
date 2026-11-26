@@ -10,13 +10,22 @@
     const NOTE_STORE_PREFIX = 'qcmk_edn_notes_';
     let lastCtx = null;
     let resizeHandler = null;
+    let activeMatiereFilter = '';
+    let activeRankFilter = 'ALL';
+    let activeSortMode = 'orig';
+
+    function getAnki() {
+      return root.anki || null;
+    }
 
     function detectMode() {
       const path = (location.pathname || '').toLowerCase();
-      if (/ancrage/.test(path)) return 'ancrage';
-      if (/exam|annale|concours|epreuve/.test(path)) return 'exam';
+      if (/ancrage/.test(path) || document.querySelector('app-knowledge-anchoring')) return 'ancrage';
+      if (/notions/.test(path) || document.querySelector('app-training-knowledge-review')) return 'notions';
+      if (/\/fiche\b/.test(path) || document.querySelector('app-course-record')) return 'fiche';
+      if (/exam|annale|concours|epreuve/.test(path) || document.querySelector('app-exam-content-correction, app-exam-detail')) return 'exam';
       if (/training|entrainement/.test(path)) return 'training';
-      const qCards = document.querySelectorAll('[data-question-id], .question-card, .question-container, [id^="question-"]');
+      const qCards = document.querySelectorAll('app-question-header, app-question-header-legacy, [data-question-id], .question-card, .question-container, [id^="question-"]');
       if (qCards.length > 1) return 'exam';
       return 'training';
     }
@@ -26,6 +35,21 @@
     }
 
     function getQuestionContainers() {
+      const formNodes = Array.from(document.querySelectorAll('app-question-correction-form, app-question-correction-form-legacy, app-question-header, app-question-header-legacy'))
+        .filter((el) => dom.isVisible(el));
+      if (formNodes.length > 0) {
+        const wrappers = [];
+        const seen = new Set();
+        for (const fn of formNodes) {
+          const wrap = fn.closest('[data-question-id], [id^="question-"], .question-card, .question-container, app-question, div.mb-6, div.rounded-lg, section, article') || fn.parentElement;
+          if (wrap && !seen.has(wrap)) {
+            seen.add(wrap);
+            wrappers.push(wrap);
+          }
+        }
+        if (wrappers.length > 0) return wrappers;
+      }
+
       const selectors = [
         '[data-question-id]',
         '[id^="question-"]',
@@ -62,7 +86,6 @@
       ).filter((el) => dom.isVisible(el) && !el.disabled);
       if (buttons.length > 0) return buttons;
 
-      // Fallback: letter-prefixed proposition rows (A., B., C., ...)
       const candidates = Array.from(rootEl.querySelectorAll('label, [role="button"], button, li')).filter((el) => {
         if (!dom.isVisible(el) || el.disabled) return false;
         const txt = (el.textContent || '').trim();
@@ -233,7 +256,7 @@
           fontSize: '11px',
           fontWeight: '600',
         });
-        const heading = q.querySelector('h1, h2, h3, h4, .question-title, header') || q;
+        const heading = q.querySelector('h1, h2, h3, h4, app-question-header, app-question-header-legacy, .question-title, header') || q;
         heading.appendChild(pill);
       });
 
@@ -247,6 +270,24 @@
           item.style.outline = '';
         }
       });
+    }
+
+    function jumpToNextFlag(activeQ) {
+      const flags = flagStore.getFlags(getExamKey());
+      const containers = getQuestionContainers();
+      const flagged = containers.filter((q, idx) => {
+        const qid = q.getAttribute('data-question-id') || q.id || String(idx + 1);
+        return flags.has(qid) || flags.has(String(idx + 1));
+      });
+      if (flagged.length === 0) {
+        dom.showToast('Aucune question marquée');
+        return false;
+      }
+      const curIdx = flagged.indexOf(activeQ);
+      const nextEl = flagged[(curIdx + 1) % flagged.length];
+      nextEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      dom.showToast('Question marquée suivante');
+      return true;
     }
 
     function applyRefouaLinks(ctx) {
@@ -275,58 +316,553 @@
       }
     }
 
+    // -------------------------------------------------------------------------
+    // Extraction Item / Rang / Objectifs & Tri/Filtre (Notions, Ancrage, Items)
+    // -------------------------------------------------------------------------
+
+    function extractEdnItemNumber() {
+      const candidates = document.querySelectorAll(
+        'app-card-title-badge[size="small"], app-training-detail-header, app-exam-preview-courses a, h1, h2'
+      );
+      for (let i = 0; i < candidates.length; i++) {
+        const txt = (candidates[i].textContent || '').trim();
+        const m = txt.match(/\bItem\s*[-:n°]*\s*(\d{1,3})\b/i);
+        if (m) return m[1];
+      }
+      return null;
+    }
+
+    function extractRowRank(row) {
+      const rankEl = row.querySelector('app-notion-rank');
+      const raw = rankEl ? (rankEl.textContent || '').trim() : '';
+      const m1 = raw.match(/\b([ABC])\b/i);
+      if (m1) return m1[1].toUpperCase();
+      const m2 = (row.textContent || '').match(/\bRang\s*([ABC])\b/i);
+      return m2 ? m2[1].toUpperCase() : '';
+    }
+
+    function extractRowProgress(row) {
+      const m = (row.textContent || '').match(/(\d+(?:[.,]\d+)?)\s*%/);
+      return m ? parseFloat(m[1].replace(',', '.')) : 999;
+    }
+
+    function extractRowObjectiveText(row) {
+      const titleNode = row.querySelector('h3, h4, strong, [class*="title" i], [class*="name" i], span');
+      const raw = titleNode ? (titleNode.textContent || '') : (row.textContent || '');
+      return raw.replace(/\s+/g, ' ').trim();
+    }
+
+    function applyNotionsSortAndFilter(container, rows) {
+      for (const row of rows) {
+        const r = extractRowRank(row);
+        const visible = activeRankFilter === 'ALL' || r === activeRankFilter;
+        row.style.display = visible ? '' : 'none';
+      }
+
+      const sorted = rows.slice().sort((a, b) => {
+        if (activeSortMode === 'orig') {
+          return Number(a.dataset.qcmkOrigIdx || 0) - Number(b.dataset.qcmkOrigIdx || 0);
+        }
+        if (activeSortMode === 'rank') {
+          const order = { A: 1, B: 2, C: 3, '': 9 };
+          return (order[extractRowRank(a)] || 9) - (order[extractRowRank(b)] || 9);
+        }
+        if (activeSortMode === 'progress') {
+          return extractRowProgress(a) - extractRowProgress(b);
+        }
+        return extractRowObjectiveText(a).localeCompare(extractRowObjectiveText(b), 'fr');
+      });
+
+      for (const row of sorted) {
+        container.appendChild(row);
+      }
+    }
+
+    function applyNotionsToolbar(ctx) {
+      const reviewEl = document.querySelector('app-training-knowledge-review');
+      if (!ctx.isEnabled('edn.ancrageCounters') || !reviewEl) {
+        const oldTb = document.getElementById('qcmk-edn-notions-toolbar');
+        if (oldTb) oldTb.remove();
+        return;
+      }
+
+      const anki = getAnki();
+      if (anki) anki.ensureStyles();
+
+      const rankBadges = Array.from(reviewEl.querySelectorAll('app-notion-rank'));
+      if (rankBadges.length === 0) return;
+
+      // Identifier les lignes sœurs portant les objectifs
+      const firstRow = rankBadges[0].closest('div.border, div.rounded, li, tr, mat-card, a') || rankBadges[0].parentElement;
+      const listContainer = firstRow ? firstRow.parentElement : null;
+      if (!listContainer) return;
+
+      const rows = Array.from(listContainer.children).filter(
+        (el) => el.id !== 'qcmk-edn-notions-toolbar' && el.querySelector('app-notion-rank')
+      );
+      if (rows.length === 0) return;
+
+      rows.forEach((row, idx) => {
+        if (!row.dataset.qcmkOrigIdx) row.dataset.qcmkOrigIdx = String(idx);
+      });
+
+      // Injecter un bouton Anki sur chaque ligne d'objectif si activé
+      if (anki && ctx.isEnabled('edn.anki') && ctx.option('edn.anki', 'showButtons') !== false) {
+        const itemNum = extractEdnItemNumber();
+        rows.forEach((row) => {
+          if (row.querySelector('.qcmk-edn-notion-anki')) return;
+          const r = extractRowRank(row);
+          const objTitle = extractRowObjectiveText(row);
+          const uri = anki.buildAnkiEdnUri({
+            action: 'lisa',
+            src: 'edn',
+            item: itemNum,
+            rang: r === 'A' || r === 'B' ? r : undefined,
+            q: anki.extractMedicalKeywords(objTitle, 4),
+          });
+          if (!uri) return;
+          const btn = anki.createAnkiButton({ label: 'Anki', compact: true, uri });
+          btn.classList.add('qcmk-edn-notion-anki');
+          btn.style.marginLeft = '8px';
+          row.appendChild(btn);
+        });
+      }
+
+      if (document.getElementById('qcmk-edn-notions-toolbar')) {
+        applyNotionsSortAndFilter(listContainer, rows);
+        return;
+      }
+
+      const bar = document.createElement('div');
+      bar.id = 'qcmk-edn-notions-toolbar';
+      bar.className = 'qcmk-anki-bar';
+
+      const title = document.createElement('span');
+      title.className = 'qcmk-anki-bar-title';
+      title.textContent = 'Objectifs (' + rows.length + ')';
+
+      const controls = document.createElement('div');
+      controls.className = 'qcmk-anki-bar-actions';
+
+      ['ALL', 'A', 'B', 'C'].forEach((rankVal) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'qcmk-anki-btn qcmk-anki-btn--compact' + (activeRankFilter === rankVal ? ' qcmk-anki-btn--primary' : '');
+        btn.textContent = rankVal === 'ALL' ? 'Tous' : 'Rang ' + rankVal;
+        btn.dataset.qcmkRankBtn = rankVal;
+        btn.addEventListener('click', () => {
+          activeRankFilter = rankVal;
+          bar.querySelectorAll('[data-qcmk-rank-btn]').forEach((b) => {
+            b.classList.toggle('qcmk-anki-btn--primary', b.dataset.qcmkRankBtn === activeRankFilter);
+          });
+          applyNotionsSortAndFilter(listContainer, rows);
+        });
+        controls.appendChild(btn);
+      });
+
+      const sortSelect = document.createElement('select');
+      sortSelect.className = 'qcmk-anki-btn qcmk-anki-btn--compact';
+      [
+        { id: 'orig', label: 'Tri : Ordre EDN' },
+        { id: 'alpha', label: 'Tri : Objectif (A-Z)' },
+        { id: 'rank', label: 'Tri : Rang (A -> C)' },
+        { id: 'progress', label: 'Tri : Progression croissante' },
+      ].forEach((opt) => {
+        const o = document.createElement('option');
+        o.value = opt.id;
+        o.textContent = opt.label;
+        sortSelect.appendChild(o);
+      });
+      sortSelect.value = activeSortMode;
+      sortSelect.addEventListener('change', () => {
+        activeSortMode = sortSelect.value;
+        applyNotionsSortAndFilter(listContainer, rows);
+      });
+      controls.appendChild(sortSelect);
+
+      bar.append(title, controls);
+      listContainer.parentElement.insertBefore(bar, listContainer);
+      applyNotionsSortAndFilter(listContainer, rows);
+    }
+
     function applyAncrageCounters(ctx) {
-      if (!ctx.isEnabled('edn.ancrageCounters') || detectMode() !== 'ancrage') return;
+      const mode = detectMode();
+      if (mode === 'notions') {
+        applyNotionsToolbar(ctx);
+        return;
+      }
+
+      if (!ctx.isEnabled('edn.ancrageCounters') || (mode !== 'ancrage' && !document.querySelector('app-items-list'))) {
+        const oldBox = document.getElementById('qcmk-ancrage-summary');
+        if (oldBox) oldBox.remove();
+        return;
+      }
       if (document.getElementById('qcmk-ancrage-summary')) return;
 
-      const rows = Array.from(document.querySelectorAll('[data-matiere], .matiere-card, .ancrage-item, tr')).filter((el) => dom.isVisible(el));
+      const anki = getAnki();
+      if (anki) anki.ensureStyles();
+
+      const rows = Array.from(
+        document.querySelectorAll('app-training-item-card, [data-matiere], .matiere-card, .ancrage-item, tr')
+      ).filter((el) => dom.isVisible(el));
       if (rows.length === 0) return;
 
       const counts = new Map();
-      rows.forEach((row) => {
-        const label = row.getAttribute('data-matiere') || (row.querySelector('h3, h4, td, strong') || row).textContent || '';
-        const clean = label.trim().split('\n')[0].slice(0, 50);
+      const rowMeta = [];
+      rows.forEach((row, idx) => {
+        const label = row.getAttribute('data-matiere') || (row.querySelector('h3, h4, td, strong, span') || row).textContent || '';
+        const clean = label.trim().split('\n')[0].slice(0, 48);
+        const rank = extractRowRank(row);
         if (clean) counts.set(clean, (counts.get(clean) || 0) + 1);
+        row.dataset.qcmkOrigIdx = String(idx);
+        rowMeta.push({ row, mat: clean, rank });
       });
       if (counts.size === 0) return;
 
       const box = document.createElement('div');
       box.id = 'qcmk-ancrage-summary';
-      Object.assign(box.style, {
-        margin: '12px 0',
-        padding: '10px 14px',
-        border: '1px solid #e4e4e7',
-        borderRadius: '8px',
-        background: '#fafafa',
-        color: '#18181b',
-        fontSize: '13px',
+      box.className = 'qcmk-anki-bar';
+      box.style.flexDirection = 'column';
+      box.style.alignItems = 'stretch';
+
+      const head = document.createElement('div');
+      head.style.display = 'flex';
+      head.style.flexWrap = 'wrap';
+      head.style.alignItems = 'center';
+      head.style.justifyContent = 'space-between';
+      head.style.gap = '8px';
+
+      const title = document.createElement('span');
+      title.className = 'qcmk-anki-bar-title';
+      title.textContent = mode === 'ancrage' ? 'Ancrages et révisions (' + rows.length + ')' : 'Items filtrables (' + rows.length + ')';
+
+      const headActions = document.createElement('div');
+      headActions.className = 'qcmk-anki-bar-actions';
+
+      const hasRanks = rowMeta.some((m) => m.rank !== '');
+      const refreshFilters = () => {
+        rowMeta.forEach((m) => {
+          const okMat = !activeMatiereFilter || m.mat === activeMatiereFilter;
+          const okRank = activeRankFilter === 'ALL' || m.rank === activeRankFilter;
+          m.row.style.display = okMat && okRank ? '' : 'none';
+        });
+      };
+
+      if (hasRanks) {
+        ['ALL', 'A', 'B', 'C'].forEach((r) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'qcmk-anki-btn qcmk-anki-btn--compact' + (activeRankFilter === r ? ' qcmk-anki-btn--primary' : '');
+          btn.textContent = r === 'ALL' ? 'Tous rangs' : 'Rang ' + r;
+          btn.addEventListener('click', () => {
+            activeRankFilter = r;
+            refreshFilters();
+          });
+          headActions.appendChild(btn);
+        });
+      }
+
+      const launchBtn = document.createElement('button');
+      launchBtn.type = 'button';
+      launchBtn.className = 'qcmk-anki-btn qcmk-anki-btn--primary qcmk-anki-btn--compact';
+      launchBtn.textContent = 'Lancer une session';
+      launchBtn.addEventListener('click', () => {
+        const nativeBtn = dom.findButtonByText(document, [/nouvelle session/, /lancer/, /reviser/, /commencer/]);
+        if (nativeBtn) {
+          dom.safeClick(nativeBtn);
+          return;
+        }
+        const firstCardLink = rows
+          .filter((r) => r.style.display !== 'none')
+          .map((r) => r.querySelector('a[href]') || (r.tagName === 'A' ? r : null))
+          .find(Boolean);
+        if (firstCardLink) dom.safeClick(firstCardLink);
       });
-      const title = document.createElement('div');
-      title.style.fontWeight = '600';
-      title.style.marginBottom = '6px';
-      title.textContent = 'Ancrages détectés par matière';
-      box.appendChild(title);
+      headActions.appendChild(launchBtn);
+      head.append(title, headActions);
+      box.appendChild(head);
 
       const list = document.createElement('div');
       list.style.display = 'flex';
       list.style.flexWrap = 'wrap';
       list.style.gap = '6px';
+
+      const allChip = document.createElement('button');
+      allChip.type = 'button';
+      allChip.className = 'qcmk-anki-btn qcmk-anki-btn--compact' + (!activeMatiereFilter ? ' qcmk-anki-btn--primary' : '');
+      allChip.textContent = 'Tout afficher';
+      allChip.addEventListener('click', () => {
+        activeMatiereFilter = '';
+        list.querySelectorAll('button').forEach((b) => b.classList.remove('qcmk-anki-btn--primary'));
+        allChip.classList.add('qcmk-anki-btn--primary');
+        refreshFilters();
+      });
+      list.appendChild(allChip);
+
       for (const [mat, count] of counts.entries()) {
-        const chip = document.createElement('span');
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'qcmk-anki-btn qcmk-anki-btn--compact';
         chip.textContent = mat + ' : ' + count;
-        Object.assign(chip.style, {
-          padding: '2px 8px',
-          borderRadius: '4px',
-          border: '1px solid #d4d4d8',
-          background: '#ffffff',
-          fontSize: '12px',
+        chip.addEventListener('click', () => {
+          activeMatiereFilter = activeMatiereFilter === mat ? '' : mat;
+          list.querySelectorAll('button').forEach((b) => b.classList.remove('qcmk-anki-btn--primary'));
+          (activeMatiereFilter ? chip : allChip).classList.add('qcmk-anki-btn--primary');
+          refreshFilters();
         });
         list.appendChild(chip);
       }
       box.appendChild(list);
 
-      const main = document.querySelector('main') || document.body;
+      const main = document.querySelector('#listContainer, app-knowledge-anchoring, main') || document.body;
       main.prepend(box);
+    }
+
+    // -------------------------------------------------------------------------
+    // Connecteur Anki EDN sur EDN.fr (Fiches de cours + Corrections QCM/DP)
+    // -------------------------------------------------------------------------
+
+    function isCorrectionView() {
+      if (/correction/i.test(location.pathname || '')) return true;
+      return Boolean(document.querySelector('app-training-correction, app-exam-content-correction, app-question-correction-form, app-question-correction-form-legacy'));
+    }
+
+    function inspectEdnCorrectionQuestion(qEl, fallbackItem) {
+      const anki = getAnki();
+      if (!qEl) return null;
+
+      const ulidInput = qEl.querySelector('input[name^="chekbox-many-"], input[name^="radio-one-"], input[name^="input-match-"]');
+      const rawName = ulidInput ? (ulidInput.getAttribute('name') || '') : '';
+      const ulidMatch = rawName.match(/(?:chekbox-many-|radio-one-|input-match-)([A-Za-z0-9]+)/);
+      const qid = ulidMatch ? 'edn:q:' + ulidMatch[1].slice(0, 25).toLowerCase() : null;
+
+      const rank = extractRowRank(qEl);
+      let scoreHasError = false;
+      const scoreMatch = (qEl.textContent || '').match(/(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)\s*pts?/i);
+      if (scoreMatch) {
+        const got = parseFloat(scoreMatch[1].replace(',', '.'));
+        const max = parseFloat(scoreMatch[2].replace(',', '.'));
+        if (Number.isFinite(got) && Number.isFinite(max) && max > 0 && got < max) {
+          scoreHasError = true;
+        }
+      }
+
+      const propErrors = [];
+      const expectedTrueTexts = [];
+
+      // QRM checkboxes
+      const checkboxes = Array.from(qEl.querySelectorAll('mat-checkbox'));
+      checkboxes.forEach((cb, idx) => {
+        const isChecked = cb.classList.contains('mat-mdc-checkbox-checked') || Boolean(cb.querySelector('input:checked'));
+        const isOmission = cb.classList.contains('question-many-should') && !isChecked;
+        const isCommission = cb.classList.contains('question-many-should-not') && isChecked;
+        const isWin = cb.classList.contains('question-many-win') || cb.classList.contains('question-many-should');
+        const txt = (cb.textContent || '').replace(/\s+/g, ' ').trim();
+        if (isWin && txt) expectedTrueTexts.push(txt);
+        if (isOmission || isCommission) {
+          propErrors.push({ letter: String.fromCharCode(65 + idx), kind: isCommission ? 'cochee a tort' : 'non cochee', text: txt });
+        }
+      });
+
+      // QRU radios
+      const radios = Array.from(qEl.querySelectorAll('mat-radio-button'));
+      radios.forEach((rb, idx) => {
+        const isChecked = rb.classList.contains('mat-mdc-radio-checked') || Boolean(rb.querySelector('input:checked'));
+        const isOmission = rb.classList.contains('question-one-should') && !isChecked;
+        const isCommission = rb.classList.contains('question-one-should-not') && isChecked;
+        const txt = (rb.textContent || '').replace(/\s+/g, ' ').trim();
+        if (rb.classList.contains('question-one-should') && txt) expectedTrueTexts.push(txt);
+        if (isOmission || isCommission) {
+          propErrors.push({ letter: String.fromCharCode(65 + idx), kind: isCommission ? 'cochee a tort' : 'non cochee', text: txt });
+        }
+      });
+
+      // QROC
+      const qrocField = qEl.querySelector('mat-form-field');
+      const qrocError = Boolean(qrocField && !qrocField.classList.contains('question-match-success') && scoreHasError);
+
+      const hasError = scoreHasError || propErrors.length > 0 || qrocError;
+      const contentEl = qEl.querySelector('app-question-content') || qEl;
+      const corrForm = qEl.querySelector('app-question-correction-form, app-question-correction-form-legacy') || qEl;
+      const allText = [contentEl.textContent || '', expectedTrueTexts.join(' '), corrForm.textContent || ''].join(' ');
+      const allKeywords = anki ? anki.extractMedicalKeywords(allText, 5) : [];
+
+      const errText = propErrors.length > 0
+        ? propErrors.map((e) => e.text).join(' ') + ' ' + (contentEl.textContent || '')
+        : allText;
+      const errKeywords = anki ? anki.extractMedicalKeywords(errText, 5) : [];
+
+      let errNote = '';
+      if (propErrors.length > 0) {
+        const top = propErrors[0];
+        errNote = ('Prop ' + top.letter + ' ' + top.kind + ' : ' + top.text).slice(0, 220);
+      } else if (hasError) {
+        errNote = 'Question echouee sur EDN.fr';
+      }
+
+      return {
+        el: qEl,
+        qid,
+        item: fallbackItem,
+        rang: rank === 'A' || rank === 'B' ? rank : undefined,
+        hasError,
+        allKeywords,
+        errKeywords,
+        errNote,
+      };
+    }
+
+    function clearEdnAnkiUi() {
+      const topBar = document.getElementById('qcmk-edn-anki-bar');
+      if (topBar) topBar.remove();
+      const ficheBar = document.getElementById('qcmk-edn-fiche-anki');
+      if (ficheBar) ficheBar.remove();
+      document.querySelectorAll('.qcmk-anki-q-bar, .qcmk-edn-fiche-obj-anki').forEach((n) => n.remove());
+    }
+
+    function applyEdnAnkiConnector(ctx) {
+      const anki = getAnki();
+      if (!anki || !ctx.isEnabled('edn.anki') || ctx.option('edn.anki', 'showButtons') === false) {
+        clearEdnAnkiUi();
+        return;
+      }
+
+      const itemNum = extractEdnItemNumber();
+
+      // 1. Fiche de cours (/app/courses/course/.../fiche)
+      const courseRecord = document.querySelector('app-course-record');
+      if (courseRecord) {
+        if (itemNum && !document.getElementById('qcmk-edn-fiche-anki')) {
+          const bar = document.createElement('div');
+          bar.id = 'qcmk-edn-fiche-anki';
+          bar.className = 'qcmk-anki-bar';
+
+          const title = document.createElement('span');
+          title.className = 'qcmk-anki-bar-title';
+          title.textContent = 'Anki EDN — Item ' + itemNum.padStart(3, '0');
+
+          const actions = document.createElement('div');
+          actions.className = 'qcmk-anki-bar-actions';
+          const allUri = anki.buildAnkiEdnUri({ action: 'lisa', src: 'edn', item: itemNum });
+          const rAUri = anki.buildAnkiEdnUri({ action: 'lisa', src: 'edn', item: itemNum, rang: 'A' });
+          const rBUri = anki.buildAnkiEdnUri({ action: 'lisa', src: 'edn', item: itemNum, rang: 'B' });
+          if (allUri) actions.appendChild(anki.createAnkiButton({ label: "Tout l'item " + itemNum, primary: true, uri: allUri }));
+          if (rAUri) actions.appendChild(anki.createAnkiButton({ label: 'Rang A', uri: rAUri }));
+          if (rBUri) actions.appendChild(anki.createAnkiButton({ label: 'Rang B', uri: rBUri }));
+          bar.append(title, actions);
+          courseRecord.prepend(bar);
+        }
+
+        const panels = courseRecord.querySelectorAll('mat-accordion mat-expansion-panel');
+        panels.forEach((panel) => {
+          const header = panel.querySelector('mat-expansion-panel-header');
+          if (!header || header.querySelector('.qcmk-edn-fiche-obj-anki')) return;
+          const r = extractRowRank(panel) || extractRowRank(header);
+          const objTitle = (header.textContent || '').replace(/\s+/g, ' ').trim();
+          const uri = anki.buildAnkiEdnUri({
+            action: 'lisa',
+            src: 'edn',
+            item: itemNum,
+            rang: r === 'A' || r === 'B' ? r : undefined,
+            q: anki.extractMedicalKeywords(objTitle, 4),
+          });
+          if (!uri) return;
+          const btn = anki.createAnkiButton({ label: 'Anki', compact: true, uri });
+          btn.classList.add('qcmk-edn-fiche-obj-anki');
+          btn.style.marginLeft = '8px';
+          header.appendChild(btn);
+        });
+        return;
+      }
+
+      // 2. Vue Correction Training / Exam
+      if (!isCorrectionView()) return;
+      const containers = getQuestionContainers().filter((c) => c !== document.body);
+      if (containers.length === 0) return;
+
+      const inspected = containers.map((c) => inspectEdnCorrectionQuestion(c, itemNum)).filter(Boolean);
+      if (inspected.length === 0) return;
+
+      const errList = inspected.filter((x) => x.hasError);
+      const buildBatchUri = (subset) => {
+        if (subset.length === 0) return null;
+        const qids = [];
+        const kw = [];
+        const errs = [];
+        for (const q of subset) {
+          if (q.qid && qids.indexOf(q.qid) === -1) qids.push(q.qid);
+          const srcKw = subset === errList ? q.errKeywords : q.allKeywords;
+          for (const k of srcKw) if (kw.indexOf(k) === -1 && kw.length < 6) kw.push(k);
+          if (subset === errList && q.errNote && errs.length < 2) errs.push(q.errNote);
+        }
+        return anki.buildAnkiEdnUri({
+          action: 'qcm',
+          src: 'edn',
+          qid: qids,
+          item: itemNum ? [itemNum] : [],
+          q: kw,
+          err: errs.join(' | '),
+        });
+      };
+
+      if (!document.getElementById('qcmk-edn-anki-bar')) {
+        const bar = document.createElement('div');
+        bar.id = 'qcmk-edn-anki-bar';
+        bar.className = 'qcmk-anki-bar';
+
+        const title = document.createElement('span');
+        title.className = 'qcmk-anki-bar-title';
+        title.textContent = itemNum ? 'Anki EDN — Item ' + itemNum.padStart(3, '0') : 'Anki EDN — Correction EDN.fr';
+
+        const actions = document.createElement('div');
+        actions.className = 'qcmk-anki-bar-actions';
+
+        const allUri = buildBatchUri(inspected);
+        const errUri = buildBatchUri(errList);
+        if (allUri) actions.appendChild(anki.createAnkiButton({ label: 'Anki : toutes les notions', uri: allUri }));
+        actions.appendChild(
+          anki.createAnkiButton({
+            label: 'Anki : mes erreurs (' + errList.length + ')',
+            primary: errList.length > 0,
+            disabled: errList.length === 0 || !errUri,
+            uri: errUri || '',
+          })
+        );
+
+        bar.append(title, actions);
+        const anchor = document.querySelector('#mobile-session-questions-container, app-training-correction, app-exam-content-correction, main') || document.body;
+        anchor.prepend(bar);
+      }
+
+      inspected.forEach((info) => {
+        if (info.el.querySelector('.qcmk-anki-q-bar')) return;
+        const qAllUri = anki.buildAnkiEdnUri({
+          action: 'qcm',
+          src: 'edn',
+          qid: info.qid ? [info.qid] : [],
+          item: info.item ? [info.item] : [],
+          rang: info.rang,
+          q: info.allKeywords,
+        });
+        const qErrUri = info.hasError
+          ? anki.buildAnkiEdnUri({
+              action: 'qcm',
+              src: 'edn',
+              qid: info.qid ? [info.qid] : [],
+              item: info.item ? [info.item] : [],
+              rang: info.rang,
+              q: info.errKeywords,
+              err: info.errNote,
+            })
+          : null;
+        if (!qAllUri && !qErrUri) return;
+
+        const qBar = document.createElement('div');
+        qBar.className = 'qcmk-anki-q-bar';
+        if (qAllUri) qBar.appendChild(anki.createAnkiButton({ label: 'Anki : cette question', compact: true, uri: qAllUri }));
+        if (qErrUri) qBar.appendChild(anki.createAnkiButton({ label: 'Anki : mes erreurs', compact: true, primary: true, uri: qErrUri }));
+        info.el.appendChild(qBar);
+      });
     }
 
     function applyKeyHints(ctx) {
@@ -373,6 +909,7 @@
       renderFlags(ctx);
       applyRefouaLinks(ctx);
       applyAncrageCounters(ctx);
+      applyEdnAnkiConnector(ctx);
       applyKeyHints(ctx);
     }
 
@@ -394,12 +931,10 @@
         const activeQ = getActiveQuestion(mode);
         const typing = kb.isTypingTarget(e.target);
 
-        // QROC autofocus when user starts typing a printable character
         const qrocEnabled = mode === 'exam' ? ctx.isEnabled('edn.exam.qroc') : ctx.isEnabled('edn.training.qroc');
         if (!typing && qrocEnabled && kb.isPrintableKey(e)) {
           const idx = ctx.matchSharedChoice(e);
           const choices = getChoiceTargets(activeQ);
-          // Only autofocus QROC if no choice targets exist in this question
           if (choices.length === 0 || idx === -1) {
             const qroc = findQrocInput(activeQ);
             if (qroc && choices.length === 0) {
@@ -410,8 +945,58 @@
         }
 
         if (typing) {
-          // Allow Enter inside textarea only with Shift, or allow shortcut validate if single-line input is not multi-line
           return false;
+        }
+
+        // Anki EDN shortcuts
+        if (ctx.isEnabled('edn.anki')) {
+          const anki = getAnki();
+          const itemNum = extractEdnItemNumber();
+          if (ctx.matches(e, 'edn.anki', 'openActive') && anki) {
+            if (mode === 'fiche' && itemNum) {
+              const u = anki.buildAnkiEdnUri({ action: 'lisa', src: 'edn', item: itemNum });
+              if (u) return anki.launchAnkiUri(u, 'Ouverture Item ' + itemNum + ' dans Anki...');
+            } else if (isCorrectionView() && activeQ && activeQ !== document.body) {
+              const info = inspectEdnCorrectionQuestion(activeQ, itemNum);
+              if (info) {
+                const u = anki.buildAnkiEdnUri({
+                  action: 'qcm',
+                  src: 'edn',
+                  qid: info.qid ? [info.qid] : [],
+                  item: info.item ? [info.item] : [],
+                  rang: info.rang,
+                  q: info.allKeywords,
+                });
+                if (u) return anki.launchAnkiUri(u, 'Ouverture de la question dans Anki...');
+              }
+            }
+          }
+          if (ctx.matches(e, 'edn.anki', 'openErrors') && anki && isCorrectionView()) {
+            const info = activeQ && activeQ !== document.body ? inspectEdnCorrectionQuestion(activeQ, itemNum) : null;
+            if (info && info.hasError) {
+              const u = anki.buildAnkiEdnUri({
+                action: 'qcm',
+                src: 'edn',
+                qid: info.qid ? [info.qid] : [],
+                item: info.item ? [info.item] : [],
+                rang: info.rang,
+                q: info.errKeywords,
+                err: info.errNote,
+              });
+              if (u) return anki.launchAnkiUri(u, 'Ouverture des erreurs dans Anki...');
+            }
+            dom.showToast('Aucune erreur sur la question active.');
+            return true;
+          }
+        }
+
+        // Pin shortcut
+        if (ctx.isEnabled('edn.pin') && ctx.matches(e, 'edn.pin', 'toggle')) {
+          const pinBtn = activeQ.querySelector('app-student-question-pin button, app-student-question-pin');
+          if (pinBtn && dom.safeClick(pinBtn)) {
+            dom.showToast('Épingle mise à jour');
+            return true;
+          }
         }
 
         // Scroll
@@ -515,6 +1100,9 @@
               dom.showToast('Tous les drapeaux de l\'épreuve supprimés');
               return true;
             }
+            if (ctx.matches(e, 'edn.exam.flags', 'nextFlag')) {
+              return jumpToNextFlag(activeQ);
+            }
             if (ctx.matches(e, 'edn.exam.flags', 'toggle')) {
               const containers = getQuestionContainers();
               const idx = Math.max(0, containers.indexOf(activeQ));
@@ -543,10 +1131,23 @@
         dom.injectStyle('qcmk-edn-halfscreen', '');
         dom.injectStyle('qcmk-edn-scores-css', '');
         dom.clearKeyHints();
+        clearEdnAnkiUi();
+        const tb = document.getElementById('qcmk-edn-notions-toolbar');
+        if (tb) tb.remove();
+        const box = document.getElementById('qcmk-ancrage-summary');
+        if (box) box.remove();
         if (resizeHandler) {
           window.removeEventListener('resize', resizeHandler);
           resizeHandler = null;
         }
+      },
+
+      _testHooks: {
+        detectMode,
+        extractEdnItemNumber,
+        inspectEdnCorrectionQuestion,
+        applyNotionsToolbar,
+        applyEdnAnkiConnector,
       },
     };
   }

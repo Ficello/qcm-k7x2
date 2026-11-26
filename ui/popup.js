@@ -5,11 +5,14 @@
 
   const globalToggle = document.getElementById('global-enabled');
   const siteStatus = document.getElementById('site-status');
+  const ankiActions = document.getElementById('anki-actions');
+  const ankiFeedback = document.getElementById('anki-feedback');
   const featureList = document.getElementById('feature-list');
   const openOptionsBtn = document.getElementById('open-options');
 
   let currentSettings = null;
   let activeSite = null;
+  let activeTabId = null;
 
   function detectSiteFromUrl(url) {
     if (!url) return null;
@@ -25,9 +28,72 @@
     return null;
   }
 
+  function sendAnkiTrigger(mode) {
+    if (!extApi || !extApi.tabs || typeof activeTabId !== 'number') return;
+    ankiFeedback.hidden = true;
+    ankiFeedback.textContent = '';
+    const payload = { type: 'qcmk-open-anki', mode: mode || 'active', selectionText: '' };
+    const showPermissionErr = () => {
+      ankiFeedback.textContent = 'Extension non active sur cet onglet : autorisez l’accès au site dans about:addons > QCM Clavier > Permissions puis rechargez la page.';
+      ankiFeedback.hidden = false;
+    };
+    const handleResponse = (resp) => {
+      if (!resp || resp.ok !== true) {
+        ankiFeedback.textContent = (resp && resp.message) || 'Aucune notion QCM détectée sur cette page.';
+        ankiFeedback.hidden = false;
+        return;
+      }
+      setTimeout(() => window.close(), 120);
+    };
+    try {
+      const isFx = typeof browser !== 'undefined' && Boolean(browser && browser.tabs);
+      if (isFx) {
+        browser.tabs.sendMessage(activeTabId, payload).then(handleResponse, showPermissionErr);
+      } else {
+        extApi.tabs.sendMessage(activeTabId, payload, (resp) => {
+          if (extApi.runtime && extApi.runtime.lastError) {
+            showPermissionErr();
+            return;
+          }
+          handleResponse(resp);
+        });
+      }
+    } catch (_) {
+      showPermissionErr();
+    }
+  }
+
+  function renderAnkiActions() {
+    ankiActions.innerHTML = '';
+    ankiFeedback.hidden = true;
+    if (!activeSite || typeof activeTabId !== 'number') {
+      ankiActions.hidden = true;
+      return;
+    }
+
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'btn btn-primary btn-sm';
+    openBtn.textContent = 'Ouvrir dans Anki EDN';
+    openBtn.addEventListener('click', () => sendAnkiTrigger('active'));
+    ankiActions.appendChild(openBtn);
+
+    if (activeSite.id === 'uness') {
+      const errBtn = document.createElement('button');
+      errBtn.type = 'button';
+      errBtn.className = 'btn btn-sm';
+      errBtn.textContent = 'Anki : mes erreurs';
+      errBtn.addEventListener('click', () => sendAnkiTrigger('errors'));
+      ankiActions.appendChild(errBtn);
+    }
+
+    ankiActions.hidden = false;
+  }
+
   function render() {
     if (!currentSettings) return;
     globalToggle.checked = currentSettings.enabled !== false;
+    renderAnkiActions();
 
     if (!activeSite) {
       siteStatus.textContent = 'Onglet actuel hors plateforme QCM prise en charge (EDN.fr, Hypocampus, UNESS, Asclepia).';
@@ -106,16 +172,17 @@
     }
   });
 
-  function queryActiveTabUrl() {
+  function queryActiveTab() {
     if (!extApi || !extApi.tabs || !extApi.tabs.query) {
-      return Promise.resolve('');
+      return Promise.resolve({ id: null, url: '' });
     }
     return new Promise((resolve) => {
       let settled = false;
       const done = (tabs) => {
         if (settled) return;
         settled = true;
-        resolve(tabs && tabs[0] && tabs[0].url ? tabs[0].url : '');
+        const tab = tabs && tabs[0] ? tabs[0] : null;
+        resolve({ id: tab && typeof tab.id === 'number' ? tab.id : null, url: tab && tab.url ? tab.url : '' });
       };
       try {
         const maybePromise = extApi.tabs.query({ active: true, currentWindow: true }, done);
@@ -128,9 +195,10 @@
     });
   }
 
-  Promise.all([storage.load(), queryActiveTabUrl()]).then(([settings, url]) => {
+  Promise.all([storage.load(), queryActiveTab()]).then(([settings, tabInfo]) => {
     currentSettings = settings;
-    activeSite = detectSiteFromUrl(url);
+    activeTabId = tabInfo.id;
+    activeSite = detectSiteFromUrl(tabInfo.url);
     render();
   });
 })();

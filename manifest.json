@@ -1,16 +1,31 @@
 {
   "manifest_version": 3,
-  "name": "QCM Clavier",
-  "version": "1.0.0",
-  "description": "Raccourcis clavier personnalisables pour les plateformes de QCM de médecine (EDN.fr, Hypocampus, UNESS, Asclepia).",
+  "name": "Connecteur EDN",
+  "author": "Angelo Marcis",
+  "version": "1.1.0",
+  "description": "Connecteur Anki EDN et raccourcis clavier QCM pour EDN.fr, Hypocampus, UNESS (LiSA & BNE), Asclepia et Refoua.",
+  "homepage_url": "https://ficello.github.io/qcm-k7x2/",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "contextMenus"
   ],
+  "host_permissions": [
+    "*://*.edn.fr/*",
+    "*://*.hypocampus.fr/*",
+    "*://*.uness.fr/*",
+    "https://*.asclepia.io/*"
+  ],
+  "background": {
+    "scripts": ["src/background/background.js"]
+  },
   "browser_specific_settings": {
     "gecko": {
-      "id": "qcm-clavier@local.edn",
-      "strict_min_version": "109.0"
+      "id": "connecteur-edn@anki-edn.fr",
+      "strict_min_version": "109.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   },
   "icons": {
@@ -20,7 +35,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "QCM Clavier",
+    "default_title": "Connecteur EDN",
     "default_popup": "ui/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -41,6 +56,7 @@
         "src/core/storage.js",
         "src/core/keybind.js",
         "src/core/dom.js",
+        "src/core/anki_connector.js",
         "src/adapters/edn.js",
         "src/content/main.js"
       ],
@@ -53,6 +69,7 @@
         "src/core/storage.js",
         "src/core/keybind.js",
         "src/core/dom.js",
+        "src/core/anki_connector.js",
         "src/adapters/hypocampus.js",
         "src/content/main.js"
       ],
@@ -65,6 +82,7 @@
         "src/core/storage.js",
         "src/core/keybind.js",
         "src/core/dom.js",
+        "src/core/anki_connector.js",
         "src/adapters/uness.js",
         "src/content/main.js"
       ],
@@ -77,6 +95,7 @@
         "src/core/storage.js",
         "src/core/keybind.js",
         "src/core/dom.js",
+        "src/core/anki_connector.js",
         "src/adapters/asclepia.js",
         "src/content/main.js"
       ],
@@ -91,6 +110,13 @@
         "src/core/dom.js",
         "src/adapters/refoua.js",
         "src/content/main.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://ficello.github.io/qcm-k7x2/*", "https://c2su.github.io/Anki_EDN/*"],
+      "js": [
+        "src/content/install_handshake.js"
       ],
       "run_at": "document_idle"
     }
